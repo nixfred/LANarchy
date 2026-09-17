@@ -3,6 +3,10 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.8 — 2026-09-17
+
+- Map traffic as a slow Minard-style march: width from volume, soft under-glow, long pulse (not frantic dashes)
+
 ## 0.3.7 — 2026-09-17
 
 - **Move to LAN** demotes a map card into the LAN bucket (cluster + List → LAN); **Show** brings it back

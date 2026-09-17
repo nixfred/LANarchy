@@ -387,25 +387,46 @@ Panel {
     return isFinite(n) && n > 50
   }
 
-  function edgePulseSec(rowA, rowB) {
+  // Minard-style flow: width = volume, period = slow march (seconds per dash cycle).
+  function edgeFlowBps(rowA, rowB) {
     function rx(row) {
       if (!row || !row.rates || row.rates.rx_bps == null) return 0
       var n = Number(row.rates.rx_bps)
       return isFinite(n) ? n : 0
     }
-    var bps = Math.max(rx(rowA), rx(rowB))
-    // Router / WAN edges can borrow aggregate LAN rates for dash speed.
+    function tx(row) {
+      if (!row || !row.rates || row.rates.tx_bps == null) return 0
+      var n = Number(row.rates.tx_bps)
+      return isFinite(n) ? n : 0
+    }
+    var bps = Math.max(rx(rowA), rx(rowB), tx(rowA), tx(rowB))
     if (bps < 500) {
       var tot = root.lanTrafficTotals()
       var agg = Math.max(tot.rx_bps || 0, tot.tx_bps || 0)
-      if (agg > 500) bps = Math.max(bps, agg * 0.25)
+      if (agg > 500) bps = Math.max(bps, agg * 0.22)
     }
-    if (bps > 500) return Math.max(0.35, Math.min(2.8, 140000 / bps))
-    var ms = 0
-    if (rowA && rowA.rtt_ms != null) ms = Math.max(ms, Number(rowA.rtt_ms))
-    if (rowB && rowB.rtt_ms != null) ms = Math.max(ms, Number(rowB.rtt_ms))
-    if (!isFinite(ms) || ms <= 0) return 2.5
-    return Math.max(0.6, Math.min(3.5, ms / 40))
+    return bps
+  }
+
+  function edgeFlowWidth(bps) {
+    var v = Number(bps) || 0
+    if (v < 200) return 2.2
+    if (v < 8000) return 2.6 + (v / 8000) * 3.2
+    if (v < 400000) return 5.8 + Math.log(Math.max(1, v / 8000)) / Math.log(50) * 3.4
+    return 10.5
+  }
+
+  function edgeFlowPeriod(bps) {
+    // Slow campaign march — never frantic.
+    var v = Number(bps) || 0
+    if (v > 200000) return 5.5
+    if (v > 20000) return 7.5
+    if (v > 1000) return 9.5
+    return 12.5
+  }
+
+  function edgePulseSec(rowA, rowB) {
+    return root.edgeFlowPeriod(root.edgeFlowBps(rowA, rowB))
   }
 
   function routerMachine() {
@@ -2223,7 +2244,7 @@ Panel {
               border.width: 1
               border.color: Qt.alpha(Color.accent, 0.45)
 
-              // Traffic pulse strip down the bar (speed from LAN aggregate)
+              // Slow vertical march — width from aggregate LAN traffic
               Canvas {
                 id: routerTrafficCanvas
                 anchors.fill: parent
@@ -2235,25 +2256,50 @@ Panel {
                   ctx.clearRect(0, 0, width, height)
                   var tot = root.lanTrafficTotals()
                   var bps = Math.max(tot.rx_bps || 0, tot.tx_bps || 0)
-                  var speed = bps > 500 ? Math.max(0.8, Math.min(6, bps / 8000)) : 1.2
-                  var accent = Qt.alpha(Color.accent, 0.75)
-                  var dim = Qt.alpha(root.ink, 0.18)
-                  ctx.strokeStyle = dim
-                  ctx.lineWidth = 2
+                  var w = root.edgeFlowWidth(bps)
+                  var period = root.edgeFlowPeriod(bps)
+                  var cx = width / 2
+                  var y0 = 10
+                  var y1 = height - 10
+                  var ink = root.ink
+                  var accent = Color.accent
+                  // Soft river bed
+                  ctx.strokeStyle = Qt.alpha(accent, 0.10)
+                  ctx.lineWidth = w * 2.4
+                  ctx.lineCap = "round"
                   ctx.beginPath()
-                  ctx.moveTo(width / 2, 8)
-                  ctx.lineTo(width / 2, height - 8)
+                  ctx.moveTo(cx, y0)
+                  ctx.lineTo(cx, y1)
                   ctx.stroke()
-                  // Moving dashes = packets through the router
-                  ctx.strokeStyle = accent
-                  ctx.lineWidth = 3
-                  ctx.setLineDash([10, 14])
-                  ctx.lineDashOffset = -phase * speed * 18
+                  // Body
+                  ctx.strokeStyle = Qt.alpha(accent, 0.28 + Math.min(0.25, bps / 400000))
+                  ctx.lineWidth = w
                   ctx.beginPath()
-                  ctx.moveTo(width / 2, 8)
-                  ctx.lineTo(width / 2, height - 8)
+                  ctx.moveTo(cx, y0)
+                  ctx.lineTo(cx, y1)
+                  ctx.stroke()
+                  // Marching highlight — long, slow
+                  ctx.strokeStyle = Qt.alpha(accent, 0.85)
+                  ctx.lineWidth = Math.max(1.6, w * 0.38)
+                  ctx.setLineDash([w * 3.2, w * 5.5])
+                  ctx.lineDashOffset = -phase * (28 / period)
+                  ctx.beginPath()
+                  ctx.moveTo(cx, y0)
+                  ctx.lineTo(cx, y1)
                   ctx.stroke()
                   ctx.setLineDash([])
+                  // Warm tip when busy
+                  if (bps > 50000) {
+                    ctx.strokeStyle = Qt.alpha(root.themeYellow, 0.35)
+                    ctx.lineWidth = Math.max(1.2, w * 0.22)
+                    ctx.setLineDash([w * 1.4, w * 7])
+                    ctx.lineDashOffset = -phase * (22 / period) - 8
+                    ctx.beginPath()
+                    ctx.moveTo(cx, y0)
+                    ctx.lineTo(cx, y1)
+                    ctx.stroke()
+                    ctx.setLineDash([])
+                  }
                 }
               }
 
@@ -2307,11 +2353,12 @@ Panel {
             }
 
             Timer {
-              interval: 50
+              // ~12fps is enough for a slow march; keeps the canvas calm.
+              interval: 80
               running: root.opened && root.view === "glance" && root.glanceTab === "map"
               repeat: true
               onTriggered: {
-                root.edgePhase = (root.edgePhase + 0.05) % 1000
+                root.edgePhase = (root.edgePhase + 0.028) % 1000
                 edgeCanvas.requestPaint()
                 if (routerTrafficCanvas) routerTrafficCanvas.requestPaint()
               }
@@ -2334,42 +2381,77 @@ Panel {
                 }
                 var hubId = root.mapHubId()
                 var hubPos = hubId ? pos[hubId] : null
-                var calm = Qt.alpha(root.ink, 0.35)
-                var wan = Qt.alpha(Color.accent, 0.65)
-                var lan = Qt.alpha(root.themeGreen, 0.55)
                 var barMidX = root.mapHasExternal
                     ? (root.mapSplitX + root.mapBarWidth / 2)
                     : 0
-                for (i = 0; i < root.mapEdges.length; i++) {
-                  var e = root.mapEdges[i]
-                  var a = pos[String(e.from || "")]
-                  var b = pos[String(e.to || "")]
-                  if (!a || !b) continue
-                  var rowA = root.glanceRowById(e.from)
-                  var rowB = root.glanceRowById(e.to)
-                  var period = root.edgePulseSec(rowA, rowB)
-                  var kind = String(e.kind || "")
-                  var isWan = kind === "wan"
-                  var isLan = kind === "lan" || kind === "service"
-                  ctx.strokeStyle = isWan ? wan : (isLan ? lan : calm)
-                  ctx.lineWidth = isWan || isLan ? 1.75 : 1.5
-                  ctx.setLineDash(isWan ? [3, 7] : [6, 10])
-                  ctx.lineDashOffset = -root.edgePhase * (40 / period)
+
+                function strokePath(a, b, e) {
                   ctx.beginPath()
                   ctx.moveTo(a.x, a.y)
-                  if (isWan && barMidX) {
-                    // Cloud traffic crosses the router column.
+                  var kind = String(e.kind || "")
+                  if (kind === "wan" && barMidX) {
                     ctx.bezierCurveTo(barMidX, a.y, barMidX, b.y, b.x, b.y)
                   } else if (hubPos && String(e.from) !== hubId && String(e.to) !== hubId) {
-                    // Rare non-hub edges: nudge toward the reverse proxy.
                     ctx.bezierCurveTo(hubPos.x, a.y, hubPos.x, b.y, b.x, b.y)
                   } else {
-                    // Machine↔proxy / proxy↔service: gentle arc, endpoints already include hub.
                     var mx = (a.x + b.x) / 2
-                    var my = (a.y + b.y) / 2
-                    ctx.quadraticCurveTo(mx, my - Style.space(12), b.x, b.y)
+                    var my = (a.y + b.y) / 2 - Style.space(14)
+                    ctx.quadraticCurveTo(mx, my, b.x, b.y)
                   }
                   ctx.stroke()
+                }
+
+                // Thin→thick so busy rivers sit above quiet threads (Minard weight).
+                var draws = []
+                for (i = 0; i < root.mapEdges.length; i++) {
+                  var e0 = root.mapEdges[i]
+                  var a0 = pos[String(e0.from || "")]
+                  var b0 = pos[String(e0.to || "")]
+                  if (!a0 || !b0) continue
+                  var rowA = root.glanceRowById(e0.from)
+                  var rowB = root.glanceRowById(e0.to)
+                  var bps = root.edgeFlowBps(rowA, rowB)
+                  draws.push({
+                    e: e0, a: a0, b: b0, bps: bps,
+                    w: root.edgeFlowWidth(bps),
+                    period: root.edgeFlowPeriod(bps),
+                    kind: String(e0.kind || "")
+                  })
+                }
+                draws.sort(function (x, y) { return x.w - y.w })
+
+                ctx.lineCap = "round"
+                ctx.lineJoin = "round"
+                for (i = 0; i < draws.length; i++) {
+                  var d = draws[i]
+                  var isWan = d.kind === "wan"
+                  var busy = d.bps > 40000
+                  var base = isWan ? Color.accent : root.themeGreen
+                  if (busy && !isWan) base = root.themeYellow
+                  // Soft under-glow
+                  ctx.strokeStyle = Qt.alpha(base, 0.10 + Math.min(0.10, d.bps / 500000))
+                  ctx.lineWidth = d.w * 2.6
+                  ctx.setLineDash([])
+                  strokePath(d.a, d.b, d.e)
+                  // River body
+                  ctx.strokeStyle = Qt.alpha(base, isWan ? 0.32 : 0.38)
+                  ctx.lineWidth = d.w
+                  strokePath(d.a, d.b, d.e)
+                  // Slow marching ribbon
+                  ctx.strokeStyle = Qt.alpha(base, 0.82)
+                  ctx.lineWidth = Math.max(1.5, d.w * 0.36)
+                  ctx.setLineDash([d.w * 3.5, d.w * 6.2])
+                  ctx.lineDashOffset = -root.edgePhase * (26 / d.period)
+                  strokePath(d.a, d.b, d.e)
+                  // Warm spark on real load
+                  if (busy) {
+                    ctx.strokeStyle = Qt.alpha(root.themeYellow, isWan ? 0.45 : 0.55)
+                    ctx.lineWidth = Math.max(1.1, d.w * 0.18)
+                    ctx.setLineDash([d.w * 1.6, d.w * 8])
+                    ctx.lineDashOffset = -root.edgePhase * (20 / d.period) - 12
+                    strokePath(d.a, d.b, d.e)
+                  }
+                  ctx.setLineDash([])
                 }
               }
             }
