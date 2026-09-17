@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.3.13-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -93,6 +93,8 @@ Shipped `inventory.json` is a tiny localhost starter. Use **Setup → Search net
 | Action | How |
 |--------|-----|
 | Open / close | Click the castle-socket bar icon · Esc closes |
+| Choose the bar readout | **Right-click** the bar icon · or `omarchy-shell donnie.homelab-mesh barDisplay <mode>` |
+| Refresh from the bar | Middle-click the bar icon |
 | List / Map | Tabs or `l` / `m` |
 | Hide / demote selected card | Detail **Move to LAN** or `h` — card joins the LAN bucket (still probed) |
 | Restore to main map | List → **LAN** → **Show** (or **Show all on map**) |
@@ -101,6 +103,7 @@ Shipped `inventory.json` is a tiny localhost starter. Use **Setup → Search net
 | Setup | `⚙ Setup` or `s` |
 | Map select / notify | Arrows · Enter toggles ALERT/MUTE |
 | Find hosts | Setup → **Search network** → **+ add** |
+| Bootstrap a whole lab | Setup → **+ Add all machines** (or **+ Add everything**) |
 
 ### What **Search network** does
 
@@ -110,13 +113,41 @@ Rebuilds `snapshot.discover[]` from three sources and merges them:
 |--------|---------|----------------|
 | **UniFi** | Wired clients from your Cloud Gateway / UDM | Prefer **`machine`**. Strips `name ab:cd` MAC tails. Drops phones / cams / TVs / Chromecast-class noise. |
 | **mDNS** | `avahi-browse` (`_ssh`, `_home-assistant`, …) | `machine` or `host` from service type |
-| **ARP** | `ip neigh` with a MAC | `host` fallback |
+| **ARP** | `ip neigh` with a MAC, named by reverse DNS (PTR) when the LAN answers | `host` fallback |
 
 Known inventory (ids, dns, labels, static ip/mac) is filtered out. History MAC/IP counts only for **`machine`** nodes so reverse-proxied hosts do not hide the real Caddy box. UniFi machines win over mDNS/neigh for the same device; machines list first.
 
 Adding a UniFi machine prefers a `.lan` DNS guess plus IP/MAC — lab DNS, not raw typing.
 
+Names are resolved for you: ARP addresses get a PTR lookup, so Setup offers `deba`
+rather than `10.0.0.5`. Synthetic resolver answers (`_gateway`, `localhost`) are
+rejected, mDNS pairing ids fall back to the resolved host name, and a box on both
+wifi and ethernet is offered once, not twice.
+
+**+ Add all machines** adds every found `machine` in a single inventory write, which
+is the fast way to bootstrap. **+ Add everything** also takes the `host` rows, which
+on a busy LAN includes TVs and phones, so it is the deliberate option rather than
+the recommended one.
+
 Without UniFi secrets, Search still runs mDNS + ARP with weaker names.
+
+---
+
+## The bar readout
+
+The castle mark carries a number, so the bar answers "is the lab fine?" without a click.
+Right-click the icon to pick what it shows:
+
+| Mode | Shows |
+|------|-------|
+| `downs` (default) | `3↓` when something is down, `2!` when degraded, `✓` when all is well |
+| `upfrac` | `12/14` up over tracked |
+| `worstrtt` | the slowest node's RTT |
+| `wan` | `↓ down ↑ up` through the router |
+| `none` | icon only |
+
+The mark itself still colours green / amber / red and alarms when a node goes down.
+The choice is stored in `inventory.json` under `settings.barDisplay`.
 
 ---
 
@@ -203,6 +234,17 @@ That disables and removes the plugin checkout/symlink. Your state files under `~
 omarchy-shell shell summon donnie.homelab-mesh
 omarchy-shell shell hide donnie.homelab-mesh
 omarchy-shell shell rescanPlugins
+```
+
+Plugin IPC (no mouse required):
+
+```bash
+omarchy-shell donnie.homelab-mesh status            # "1 down · 8 tracked · <as_of>"
+omarchy-shell donnie.homelab-mesh open|close|toggle
+omarchy-shell donnie.homelab-mesh map|list|setup
+omarchy-shell donnie.homelab-mesh modes             # the bar readout chooser
+omarchy-shell donnie.homelab-mesh barDisplay wan    # set the readout directly
+omarchy-shell donnie.homelab-mesh refresh
 ```
 
 One-shot collector (debug):

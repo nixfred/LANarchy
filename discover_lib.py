@@ -5,8 +5,10 @@ Candidate: {source: mdns|neigh|unifi, type: machine|host, label, host, ip, mac, 
 from __future__ import annotations
 
 import re
+import socket
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from history_lib import node_meta
@@ -41,6 +43,19 @@ SERVICE_ROLE = {
     "_meshcop._udp": "noise",
 }
 LABEL_ORDER = ("machine", "host", None)
+
+# An mDNS instance name that is a bare opaque id (Chromecast / AirPlay / Matter
+# pairing ids) is never a useful label, so such a candidate is dropped.
+_OPAQUE_LABEL = re.compile(
+    r"""^(?:
+        [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}  # uuid
+      | [0-9a-f]{12,}                                                  # long hex blob
+      | [0-9a-f]{8}(?:-[0-9a-f]{4,})+                                  # dashed hex id
+    )$""",
+    re.I | re.X,
+)
+REVERSE_DNS_WORKERS = 16
+REVERSE_DNS_TIMEOUT_S = 1.0
 
 _ESCAPE = re.compile(r"\\(\d{3})")
 _BRACKET_MAC = re.compile(r"\s*\[([0-9a-fA-F:]{17})\]\s*$")
@@ -90,11 +105,18 @@ def mdns_candidates(records: list[dict], mac_by_ip: dict[str, str]) -> list[dict
             m = _BRACKET_MAC.search(r["name"])
             if m and not mac:
                 mac = fmt_mac(m.group(1))
+        clean_label = _BRACKET_MAC.sub("", label) if label else (host or ip)
+        if is_opaque_label(clean_label):
+            # A pairing id is never a label. Fall back to the resolved host name,
+            # and drop the candidate only when there is nothing else to call it.
+            if not host:
+                continue
+            clean_label = host
         out.append(
             {
                 "source": "mdns",
                 "type": "machine" if "machine" in roles else "host",
-                "label": _BRACKET_MAC.sub("", label) if label else (host or ip),
+                "label": clean_label,
                 "host": host,
                 "ip": ip,
                 "mac": mac,
@@ -104,12 +126,73 @@ def mdns_candidates(records: list[dict], mac_by_ip: dict[str, str]) -> list[dict
     return out
 
 
-def neigh_candidates(neigh: list[dict], taken_ips: set[str]) -> list[dict]:
-    return [
-        {"source": "neigh", "type": "host", "label": n["ip"], "host": None, "ip": n["ip"], "mac": n["mac"], "services": []}
-        for n in neigh
-        if n["ip"] not in taken_ips
-    ]
+def is_opaque_label(label: str | None) -> bool:
+    """True for pairing ids that should never become a node label."""
+    s = str(label or "").strip()
+    return bool(s) and bool(_OPAQUE_LABEL.match(s))
+
+
+# systemd-resolved answers some addresses with synthetic names that are not hosts.
+SYNTHETIC_PTR = frozenset({"_gateway", "localhost", "localhost.localdomain", "_outbound"})
+
+
+def reverse_dns(ip: str, resolver=socket.gethostbyaddr) -> str | None:
+    """PTR lookup for one address. Short name only, no trailing dot.
+
+    Synthetic answers (`_gateway`, `localhost`) are rejected: they are stub names
+    from the local resolver, not something you would put in an inventory.
+    """
+    try:
+        name = resolver(str(ip))[0]
+    except (OSError, UnicodeError, IndexError):
+        return None
+    name = str(name or "").strip().rstrip(".")
+    if not name or name.lower() in SYNTHETIC_PTR or name.startswith("_"):
+        return None
+    if name == str(ip):
+        return None
+    return name
+
+
+def reverse_dns_map(ips: list[str], resolver=socket.gethostbyaddr) -> dict[str, str]:
+    """PTR lookups in parallel. An address that does not resolve is simply absent."""
+    if not ips:
+        return {}
+    original = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(REVERSE_DNS_TIMEOUT_S)
+    try:
+        with ThreadPoolExecutor(max_workers=min(REVERSE_DNS_WORKERS, len(ips))) as pool:
+            names = list(pool.map(lambda ip: reverse_dns(ip, resolver), ips))
+    finally:
+        socket.setdefaulttimeout(original)
+    return {ip: name for ip, name in zip(ips, names) if name}
+
+
+def neigh_candidates(
+    neigh: list[dict], taken_ips: set[str], names: dict[str, str] | None = None
+) -> list[dict]:
+    """ARP neighbours as candidates. A PTR name, when the LAN has one, beats a bare IP
+    as both the label and the dns field, so Setup offers a name instead of an address.
+    """
+    names = names or {}
+    rows = []
+    for n in neigh:
+        if n["ip"] in taken_ips:
+            continue
+        fqdn = names.get(n["ip"])
+        short = fqdn.split(".")[0] if fqdn else None
+        rows.append(
+            {
+                "source": "neigh",
+                "type": "host",
+                "label": short or n["ip"],
+                "host": fqdn,
+                "ip": n["ip"],
+                "mac": n["mac"],
+                "services": [],
+            }
+        )
+    return rows
 
 
 def known_targets(nodes: list[dict], hist: dict) -> dict[str, set[str]]:
@@ -140,11 +223,14 @@ def is_known(c: dict, known: dict[str, set[str]]) -> bool:
 
 
 def same_device(a: dict, b: dict) -> bool:
-    if a.get("mac") and b.get("mac"):
-        return a["mac"] == b["mac"]
+    # A multi-homed box (wifi + ethernet) answers on two IPs with two MACs but one
+    # host name, so the name is checked before the MACs. Otherwise it is offered
+    # twice and lands in the inventory twice.
     ah, bh = str(a.get("host") or "").lower(), str(b.get("host") or "").lower()
     if ah and bh:
         return ah == bh
+    if a.get("mac") and b.get("mac"):
+        return a["mac"] == b["mac"]
     return bool(a.get("ip")) and a.get("ip") == b.get("ip")
 
 
@@ -193,6 +279,8 @@ def collect_discover() -> list[dict]:
         pass
     neigh = neighbors()
     mdns = mdns_candidates(parse_avahi(text), {n["ip"]: n["mac"] for n in neigh})
-    rows = mdns + neigh_candidates(neigh, {c["ip"] for c in mdns})
+    taken = {c["ip"] for c in mdns}
+    names = reverse_dns_map([n["ip"] for n in neigh if n["ip"] not in taken])
+    rows = mdns + neigh_candidates(neigh, taken, names)
     _cache.update(ts=now, rows=rows)
     return rows

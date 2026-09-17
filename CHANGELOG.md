@@ -3,6 +3,25 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.4.0 - 2026-09-17
+
+- Bar icon carries a live readout beside the castle: down count, up/total, worst
+  latency, or WAN rates. Right-click the icon to choose, or `barDisplay <mode>`
+- New `IpcHandler` (`donnie.homelab-mesh`): `open`, `close`, `toggle`, `refresh`,
+  `map`, `list`, `setup`, `modes`, `barDisplay`, `status`
+- Setup: **+ Add all machines** / **+ Add everything** bootstrap a found lab in one
+  write instead of one click per host
+- Discover resolves names automatically: reverse DNS (PTR) turns bare ARP addresses
+  into host names, and synthetic answers (`_gateway`, `localhost`) are rejected
+- Discover: an mDNS pairing id (`83DEE99F-...`) falls back to the resolved host name
+  instead of becoming a node label
+- Discover: a multi-homed box (wifi + ethernet) is one candidate, not two
+- Collector is gated: full pace with the panel open, `batteryIntervalSec` on battery
+  with it closed, and paused entirely off a configured `homeGatewayMac`
+- `inventory.json` is untracked user state, seeded from `inventory.default.json`,
+  so `omarchy plugin update` cannot conflict with an edited lab
+- Node edit form no longer scrolls: two columns, every control on screen
+
 ## 0.3.13 — 2026-09-17
 
 - Map edges: bottom→top Visio ports, elbows in gutters (no lines through card centres)

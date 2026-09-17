@@ -155,6 +155,79 @@ def test_collect_soft_fails_without_avahi(monkeypatch=None) -> None:
         discover_lib._cache.update(saved[1])
 
 
+def test_reverse_dns_rejects_synthetic_and_self_answers() -> None:
+    from discover_lib import reverse_dns
+
+    assert reverse_dns("10.0.0.5", resolver=lambda ip: ("deba.lan", [], [ip])) == "deba.lan"
+    assert reverse_dns("10.0.0.1", resolver=lambda ip: ("_gateway", [], [ip])) is None
+    assert reverse_dns("127.0.0.1", resolver=lambda ip: ("localhost", [], [ip])) is None
+    assert reverse_dns("10.0.0.9", resolver=lambda ip: ("10.0.0.9", [], [ip])) is None
+
+    def boom(ip):
+        raise OSError("no PTR")
+
+    assert reverse_dns("10.0.0.7", resolver=boom) is None
+
+
+def test_reverse_dns_map_skips_unresolved() -> None:
+    from discover_lib import reverse_dns_map
+
+    names = {"10.0.0.5": "deba.lan"}
+
+    def resolver(ip):
+        if ip in names:
+            return (names[ip], [], [ip])
+        raise OSError("no PTR")
+
+    out = reverse_dns_map(["10.0.0.5", "10.0.0.6"], resolver=resolver)
+    assert out == {"10.0.0.5": "deba.lan"}
+    assert reverse_dns_map([], resolver=resolver) == {}
+
+
+def test_neigh_candidates_prefer_ptr_name_over_bare_ip() -> None:
+    from discover_lib import neigh_candidates
+
+    neigh = [{"ip": "10.0.0.5", "mac": "aa:bb:cc:dd:ee:01"},
+             {"ip": "10.0.0.6", "mac": "aa:bb:cc:dd:ee:02"}]
+    rows = neigh_candidates(neigh, set(), {"10.0.0.5": "deba.lan"})
+    named = next(r for r in rows if r["ip"] == "10.0.0.5")
+    bare = next(r for r in rows if r["ip"] == "10.0.0.6")
+    assert named["label"] == "deba" and named["host"] == "deba.lan"
+    assert bare["label"] == "10.0.0.6" and bare["host"] is None
+
+
+def test_opaque_pairing_id_falls_back_to_host() -> None:
+    from discover_lib import is_opaque_label, mdns_candidates
+
+    assert is_opaque_label("83DEE99F-B526-470F-9D1B-16EC01196A2C")
+    assert not is_opaque_label("fnix")
+    assert not is_opaque_label("Living Room TV")
+
+    # a uuid instance name with a resolved host shows the host instead
+    recs = [{"name": "83DEE99F-B526-470F-9D1B-16EC01196A2C", "type": "_http._tcp",
+             "host": "spike-iphone", "ip": "10.0.0.153"}]
+    rows = mdns_candidates(recs, {})
+    assert len(rows) == 1 and rows[0]["label"] == "spike-iphone"
+
+    # and is dropped entirely when there is nothing else to call it
+    recs2 = [{"name": "83DEE99F-B526-470F-9D1B-16EC01196A2C", "type": "_http._tcp",
+              "host": None, "ip": "10.0.0.154"}]
+    assert mdns_candidates(recs2, {}) == []
+
+
+def test_multihomed_host_is_one_device() -> None:
+    """Same box on wifi and ethernet: two IPs, two MACs, one name."""
+    from discover_lib import merge_discover
+
+    wifi = {"source": "mdns", "type": "machine", "label": "fnix", "host": "fnix",
+            "ip": "10.0.0.213", "mac": "aa:bb:cc:dd:ee:01"}
+    wired = {"source": "mdns", "type": "machine", "label": "fnix", "host": "fnix",
+             "ip": "10.0.0.124", "mac": "aa:bb:cc:dd:ee:02"}
+    rows = merge_discover([wifi, wired], known={"ips": set(), "macs": set(), "hosts": set()})
+    assert len(rows) == 1, rows
+
+
+
 if __name__ == "__main__":
     test_parse_avahi_unescapes_and_keeps_resolved_ipv4_only()
     test_parse_neigh_drops_failed()
@@ -163,4 +236,9 @@ if __name__ == "__main__":
     test_known_targets_includes_history_meta()
     test_merge_filters_known_and_dedups_with_unifi()
     test_collect_soft_fails_without_avahi()
+    test_reverse_dns_rejects_synthetic_and_self_answers()
+    test_reverse_dns_map_skips_unresolved()
+    test_neigh_candidates_prefer_ptr_name_over_bare_ip()
+    test_opaque_pairing_id_falls_back_to_host()
+    test_multihomed_host_is_one_device()
     print("ok")

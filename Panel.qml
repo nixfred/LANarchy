@@ -44,6 +44,8 @@ Panel {
 
   // glance | setup | form
   property string view: "glance"
+  // Set just before open() to land on a view other than the glance.
+  property string pendingView: ""
   // list is the dash; map is the letterbox
   property string glanceTab: "list"
   property var mapEdges: []
@@ -1189,6 +1191,10 @@ Panel {
   }
 
   function navigateBack() {
+    if (root.view === "barmenu") {
+      root.view = "glance"
+      return
+    }
     if (root.view === "form") {
       root.view = "setup"
       root.formConfirmDelete = false
@@ -1405,6 +1411,55 @@ Panel {
     return src || "found"
   }
 
+  function discoverCount(onlyMachines) {
+    var n = 0
+    for (var i = 0; i < root.discover.length; i++) {
+      var c = root.discover[i]
+      if (onlyMachines && String(c.type || "") !== "machine") continue
+      if (root.discoveredNode(c)) n++
+    }
+    return n
+  }
+
+  function addAllDiscovered(onlyMachines) {
+    // Bulk add in ONE inventory write. discoveredNode() only checks ids already
+    // on disk, so batch-local collisions are resolved here.
+    var next = root.nodes.slice()
+    var taken = ({})
+    var i
+    for (i = 0; i < next.length; i++) taken[String(next[i].id)] = true
+
+    var added = 0
+    for (i = 0; i < root.discover.length; i++) {
+      var c = root.discover[i]
+      if (onlyMachines && String(c.type || "") !== "machine") continue
+      var node = root.discoveredNode(c)
+      if (!node) continue
+      var base = String(node.id)
+      var id = base
+      if (taken[id]) {
+        var tail = String(c.ip || c.mac || "").split(/[.:]/).pop()
+        id = tail ? (base + "-" + tail) : base
+        var n = 2
+        while (taken[id]) {
+          id = base + "-" + n
+          n++
+        }
+      }
+      node.id = id
+      taken[id] = true
+      next.push(node)
+      added++
+    }
+
+    if (added === 0) {
+      root.inventoryError = "Nothing new to add"
+      return
+    }
+    root.findHostsHint = "Added " + added + (onlyMachines ? " machine" : " host") + (added === 1 ? "" : "s")
+    root.writeNodes(next)
+  }
+
   function addDiscovered(c) {
     var node = root.discoveredNode(c)
     if (!node) {
@@ -1432,7 +1487,10 @@ Panel {
 
   onOpenedChanged: {
     if (opened) {
-      root.view = "glance"
+      // A right-click on the bar icon asks for a specific view; otherwise the
+      // panel always opens on the glance.
+      root.view = root.pendingView !== "" ? root.pendingView : "glance"
+      root.pendingView = ""
       root.mapSelectedId = ""
       root.ensureDaemon()
       loadInventory()
@@ -2053,6 +2111,72 @@ Panel {
     return n
   }
 
+  // What the bar icon shows next to the castle. Persisted in inventory settings
+  // (same store as mapAnimate) and chosen by right-clicking the bar icon.
+  readonly property var barDisplayModes: [
+    { key: "downs", label: "Down count", hint: "3↓ when something is down, a tick when all is well" },
+    { key: "upfrac", label: "Up / total", hint: "12/14" },
+    { key: "worstrtt", label: "Worst latency", hint: "the slowest node's RTT" },
+    { key: "wan", label: "WAN rates", hint: "↓ down ↑ up through the router" },
+    { key: "none", label: "Icon only", hint: "no text, just the castle" }
+  ]
+
+  readonly property string barDisplay: {
+    var v = String((root.invSettings && root.invSettings.barDisplay) || "downs")
+    for (var i = 0; i < root.barDisplayModes.length; i++)
+      if (root.barDisplayModes[i].key === v) return v
+    return "downs"
+  }
+
+  function setBarDisplay(key) {
+    var settings = ({})
+    var k
+    for (k in root.invSettings) settings[k] = root.invSettings[k]
+    settings.barDisplay = String(key || "downs")
+    root.invSettings = settings
+    root.view = "glance"
+    if (!root.inventoryReady || root.inventoryLoading) return
+    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return
+    root.runInventoryWrite(root.inventoryWritePayload(root.nodes, settings))
+  }
+
+  readonly property int glanceTotalCount: root.machines.length + root.groups.length
+
+  readonly property real glanceWorstRtt: {
+    var worst = -1
+    for (var i = 0; i < root.machines.length; i++) {
+      var v = Number(root.machines[i].rtt_ms)
+      if (isFinite(v) && v > worst) worst = v
+    }
+    return worst
+  }
+
+  readonly property string barText: {
+    if (!root.asOf) return "…"
+    var mode = root.barDisplay
+    if (mode === "none") return ""
+    if (mode === "downs")
+      return root.glanceDownCount > 0 ? (root.glanceDownCount + "↓")
+          : (root.glanceDegradedCount > 0 ? (root.glanceDegradedCount + "!") : "✓")
+    if (mode === "upfrac") {
+      var total = root.glanceTotalCount
+      if (total <= 0) return ""
+      return (total - root.glanceDownCount) + "/" + total
+    }
+    if (mode === "worstrtt") {
+      var r = root.glanceWorstRtt
+      if (!(r >= 0)) return "—"
+      return (r >= 100 ? Math.round(r) : Math.round(r * 10) / 10) + "ms"
+    }
+    if (mode === "wan") {
+      var t = root.lanTrafficTotals()
+      var d = root.fmtRate(t.rx_bps)
+      var u = root.fmtRate(t.tx_bps)
+      return (d || u) ? ("↓" + (d || "0") + " ↑" + (u || "0")) : "idle"
+    }
+    return ""
+  }
+
   readonly property color barHealthColor: {
     if (root.glanceDownCount > 0) return (root.themeRed && String(root.themeRed) !== "") ? root.themeRed : root.urgent
     if (root.glanceDegradedCount > 0) return root.themeYellow
@@ -2060,29 +2184,114 @@ Panel {
     return root.themeGreen
   }
 
-  BarIconButton {
+  // Scriptable surface. `omarchy-shell donnie.homelab-mesh <fn>` drives the
+  // panel without the mouse, which also makes the views testable.
+  IpcHandler {
+    target: "donnie.homelab-mesh"
+
+    function open(): void { root.pendingView = ""; root.open() }
+    function close(): void { root.close() }
+    function toggle(): void { root.pendingView = ""; root.toggle() }
+    function refresh(): void { root.refresh() }
+
+    function map(): void {
+      root.glanceTab = "map"
+      root.pendingView = ""
+      if (root.opened) root.view = "glance"
+      else root.open()
+    }
+
+    function list(): void {
+      root.glanceTab = "list"
+      root.pendingView = ""
+      if (root.opened) root.view = "glance"
+      else root.open()
+    }
+
+    function setup(): void {
+      root.pendingView = "setup"
+      if (root.opened) root.goSetup()
+      else root.open()
+    }
+
+    // The right-click chooser, without the right-click.
+    function modes(): void {
+      root.pendingView = "barmenu"
+      if (root.opened) root.view = "barmenu"
+      else root.open()
+    }
+
+    function barDisplay(mode: string): void { root.setBarDisplay(String(mode || "downs")) }
+
+    function status(): string {
+      if (!root.asOf) return "probing"
+      return (root.glanceDownCount > 0 ? root.glanceDownCount + " down" : "all up")
+          + " · " + root.glanceTotalCount + " tracked · " + root.asOf
+    }
+  }
+
+  // Bar entry: the castle plus a live readout. A WidgetButton (not
+  // BarIconButton) because BarIconButton draws its iconComponent inside a
+  // fixed square canvas, which clips any text beside the mark.
+  WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: ""
-    tooltipText: "Lanarchy"
-    active: root.opened
-    useActiveColor: false
-    iconComponent: Component {
-      Item {
-        LanarchyIcon {
-          anchors.centerIn: parent
-          iconSize: Style.space(14)
-          color: root.barHealthColor
-          alert: root.urgent
-          alarmed: root.glanceDownCount > 0
-          active: root.opened || root.glanceDownCount > 0 || root.glanceDegradedCount > 0
+    labelVisible: false
+    hasVisualContent: true
+    // Reserve exactly the width drawn, or the readout paints over the
+    // neighbouring widget as the reading changes length.
+    fixedWidth: root.vertical ? -1 : barRow.implicitWidth + Style.space(10)
+    fixedHeight: root.vertical ? barRow.implicitHeight + Style.space(10) : -1
+    tooltipText: {
+        var lines = ["Lanarchy"]
+        if (root.asOf) {
+            lines.push(root.glanceDownCount > 0
+                ? (root.glanceDownCount + " down · " + root.glanceTotalCount + " tracked")
+                : ("all up · " + root.glanceTotalCount + " tracked"))
+        } else {
+            lines.push("probing…")
         }
-      }
+        lines.push("Left-click: dashboard · Middle: refresh · Right-click: choose the readout")
+        return lines.join("\n")
     }
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.toggle()
       else if (buttonCode === Qt.MiddleButton) root.refresh()
+      else if (buttonCode === Qt.RightButton) {
+        if (root.opened && root.view === "barmenu") {
+          root.view = "glance"
+          return
+        }
+        root.pendingView = "barmenu"
+        if (root.opened) root.view = "barmenu"
+        else root.open()
+      }
+    }
+
+    Row {
+      id: barRow
+      anchors.centerIn: parent
+      spacing: root.barText === "" ? 0 : Style.space(4)
+
+      LanarchyIcon {
+        anchors.verticalCenter: parent.verticalCenter
+        iconSize: Style.space(14)
+        color: root.barHealthColor
+        alert: root.urgent
+        alarmed: root.glanceDownCount > 0
+        active: root.opened || root.glanceDownCount > 0 || root.glanceDegradedCount > 0
+      }
+
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        visible: root.barText !== ""
+        text: root.barText
+        color: root.barHealthColor
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: root.glanceDownCount > 0
+      }
     }
   }
 
@@ -2143,6 +2352,97 @@ Panel {
           id: glanceBody
           width: parent.width
           spacing: Style.space(10)
+
+        // ——— BAR ICON CHOOSER (right-click on the bar icon) ———
+        Column {
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.view === "barmenu"
+
+          Row {
+            spacing: Style.space(8)
+            LanarchyIcon {
+              anchors.verticalCenter: parent.verticalCenter
+              iconSize: Style.space(20)
+              color: root.barHealthColor
+              alert: root.urgent
+              alarmed: root.glanceDownCount > 0
+              active: true
+            }
+            Column {
+              spacing: Style.space(2)
+              Text {
+                text: "What the bar icon shows"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                font.letterSpacing: 1.2
+              }
+              Text {
+                text: "Right-click the icon any time · Esc back"
+                color: root.muted
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(4)
+            Repeater {
+              model: root.barDisplayModes
+              Rectangle {
+                id: modeRow
+                required property var modelData
+                width: parent.width
+                implicitHeight: Style.space(34)
+                radius: Style.space(6)
+                readonly property bool picked: root.barDisplay === String(modeRow.modelData.key)
+                color: picked
+                    ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.14)
+                    : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.04)
+                border.width: 1
+                border.color: picked ? Qt.alpha(Color.accent, 0.55) : "transparent"
+
+                Row {
+                  anchors.fill: parent
+                  anchors.leftMargin: Style.space(10)
+                  anchors.rightMargin: Style.space(10)
+                  spacing: Style.space(8)
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: modeRow.picked ? "●" : "○"
+                    color: modeRow.picked ? Color.accent : root.muted
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: String(modeRow.modelData.label)
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: modeRow.picked
+                  }
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: String(modeRow.modelData.hint)
+                    color: root.muted
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.setBarDisplay(modeRow.modelData.key)
+                }
+              }
+            }
+          }
+        }
 
         // Header — Pulse heading + Omastorm status strip
         Column {
@@ -2262,7 +2562,7 @@ Panel {
         Item {
           width: parent.width
           height: Style.space(28)
-          visible: root.view !== "glance"
+          visible: root.view === "setup" || root.view === "form"
           Text {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -2891,6 +3191,24 @@ Panel {
             visible: !root.inventoryLoading && root.discover.length > 0
             title: "FOUND · click to add · machines first"
             width: parent.width
+          }
+          // Bootstrap: a fresh install finds a whole lab, so do not make the
+          // user click "+ add" twenty times to see their own map.
+          Row {
+            visible: !root.inventoryLoading && root.discover.length > 0
+            spacing: Style.space(6)
+            SegBtn {
+              visible: root.discoverCount(true) > 0
+              label: "+ Add all machines (" + root.discoverCount(true) + ")"
+              active: false
+              onTapped: root.addAllDiscovered(true)
+            }
+            SegBtn {
+              visible: root.discoverCount(false) > root.discoverCount(true)
+              label: "+ Add everything (" + root.discoverCount(false) + ")"
+              active: false
+              onTapped: root.addAllDiscovered(false)
+            }
           }
           Column {
             width: parent.width
