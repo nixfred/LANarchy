@@ -301,6 +301,21 @@ def probe_target(node: dict) -> tuple[str | None, int | None, str | None]:
     return host, None, None
 
 
+def probe_fallback_host(node: dict) -> str | None:
+    """The address to retry with when the preferred dns name does not resolve.
+
+    Discovery guesses names (`<label>.lan` for a UniFi box, `<host>.local` for
+    mDNS). When the guess does not resolve, the node reported "unknown" forever
+    even though a perfectly good IP was stored alongside it, which reads as
+    "adding it did not work".
+    """
+    dns = _as_str(node.get("dns"))
+    ip = _as_str(node.get("ip"))
+    if dns and ip and dns != ip:
+        return ip
+    return None
+
+
 def node_display_target(node: dict) -> str:
     """Muted right-side text for setup list."""
     ntype = str(node.get("type") or "")

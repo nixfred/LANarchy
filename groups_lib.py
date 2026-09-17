@@ -125,7 +125,22 @@ def group_nodes(nodes: list[dict]) -> dict[str, list]:
                 elif t == "proxy":
                     leftover_proxies.append(n)
             continue
-        grouped_ids.update(str(n.get("id") or "") for n in members if n.get("id"))
+        # A machine is never absorbed into a service card. Grouping exists to
+        # collapse host+proxy twins (`ha.lan` and the `ha` health URL) into one
+        # service, but a real box must keep its own row: absorbed ids are
+        # excluded from `machines` AND from `leftover_rows` (which only emits
+        # hosts and proxies), so the machine would appear nowhere at all. A
+        # colliding group key is enough to trigger it, for instance a machine
+        # `caddy` beside the proxy `caddy-health`, whose `-health` suffix is
+        # stripped to the same key.
+        for n in members:
+            if str(n.get("type") or "") == "machine":
+                machines.append(n)
+        grouped_ids.update(
+            str(n.get("id") or "")
+            for n in members
+            if n.get("id") and str(n.get("type") or "") != "machine"
+        )
         zones = {
             str(n.get("zone") or "").strip().lower()
             for n in members

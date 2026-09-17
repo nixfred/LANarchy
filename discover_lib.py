@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from history_lib import node_meta
+from naming_lib import friendly_name
 from telemetry_lib import neighbors
 from unifi_lib import fmt_mac, known_from
 
@@ -434,5 +435,19 @@ def collect_discover() -> list[dict]:
     taken = {c["ip"] for c in mdns}
     names = reverse_dns_map([n["ip"] for n in neigh if n["ip"] not in taken])
     rows = name_by_ssh(promote_logins(mdns + neigh_candidates(neigh, taken, names)))
+    # Give every candidate a name a person would use, keeping the identifier it
+    # came from for the detail view.
+    for row in rows:
+        pretty = friendly_name(
+            label=row.get("label"), host=row.get("host"), ip=row.get("ip"),
+            mac=row.get("mac"), services=row.get("services"),
+        )
+        row["label"] = pretty["name"]
+        if pretty["kind"]:
+            row["deviceKind"] = pretty["kind"]
+        if pretty["raw"]:
+            row["identifier"] = pretty["raw"]
+        if pretty["randomized"]:
+            row["randomizedMac"] = True
     _cache.update(ts=now, rows=rows)
     return rows

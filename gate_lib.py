@@ -100,7 +100,14 @@ def decide(
     battery: bool | None,
     current_gateway_mac: str | None,
 ) -> dict:
-    """Return {"probe": bool, "sleep_s": float, "reason": str}.
+    """Return {"probe": bool, "discover": bool, "sleep_s": float, "reason": str}.
+
+    `discover` is separate from `probe` on purpose. Probing touches only the
+    addresses the user put in their inventory. Discovery sweeps the whole
+    attached subnet: mDNS, ARP, a TCP connect to 22 and 3389 on every
+    neighbour, and an SSH attempt on anything that answers. That is fine at
+    home and absolutely not fine on someone else's network, so it is refused
+    off the known gateway even when the user opens the panel.
 
     Defaults preserve the old always-on behaviour on a desktop (no battery,
     no configured home gateway). Only a laptop away from home, or a laptop on
@@ -113,27 +120,33 @@ def decide(
     home_mac = str(home).strip().lower() if isinstance(home, str) and home.strip() else None
     if home_mac and current_gateway_mac and current_gateway_mac != home_mac:
         if is_panel_open:
-            return {"probe": True, "sleep_s": base, "reason": "away-network panel-open"}
-        return {"probe": False, "sleep_s": AWAY_POLL_S, "reason": "away-network"}
+            # Show the user their own inventory, but never sweep a foreign LAN.
+            return {"probe": True, "discover": False, "sleep_s": base,
+                    "reason": "away-network panel-open"}
+        return {"probe": False, "discover": False, "sleep_s": AWAY_POLL_S,
+                "reason": "away-network"}
 
     if is_panel_open:
-        return {"probe": True, "sleep_s": base, "reason": "panel-open"}
+        return {"probe": True, "discover": True, "sleep_s": base, "reason": "panel-open"}
 
     if battery and s.get("batteryBackoff") is not False:
         idle = _clamp_interval(
             s.get("batteryIntervalSec"), DEFAULT_BATTERY_INTERVAL_S, base, 3600.0
         )
-        return {"probe": True, "sleep_s": idle, "reason": "battery panel-closed"}
+        # Nobody is looking: keep the inventory fresh, skip the subnet sweep.
+        return {"probe": True, "discover": False, "sleep_s": idle,
+                "reason": "battery panel-closed"}
 
     closed = s.get("closedIntervalSec")
     if closed is not None:
         return {
             "probe": True,
+            "discover": False,
             "sleep_s": _clamp_interval(closed, base, base, 3600.0),
             "reason": "panel-closed",
         }
 
-    return {"probe": True, "sleep_s": base, "reason": "mains"}
+    return {"probe": True, "discover": True, "sleep_s": base, "reason": "mains"}
 
 
 GATEWAY_TTL_S = 30.0

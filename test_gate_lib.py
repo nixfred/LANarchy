@@ -144,6 +144,35 @@ def test_gateway_mac_none_without_default_route() -> None:
     assert gate_lib.gateway_mac(run=fake_run) is None
 
 
+def test_discovery_is_refused_on_a_foreign_network() -> None:
+    """Probing touches your own inventory; discovery sweeps the whole subnet.
+
+    A TCP connect to 22 and 3389 on every neighbour plus an SSH attempt is fine
+    at home and is port-scanning on someone else's network, so an open panel
+    must not authorise it away from the known gateway.
+    """
+    away = decide({"homeGatewayMac": HOME}, panel=True, gw=AWAY)
+    assert away["probe"] is True, "the user should still see their own nodes"
+    assert away["discover"] is False, "must never sweep a foreign LAN"
+
+    closed = decide({"homeGatewayMac": HOME}, panel=False, gw=AWAY)
+    assert closed["probe"] is False and closed["discover"] is False
+
+
+def test_discovery_only_runs_when_someone_is_looking() -> None:
+    assert decide({}, panel=True)["discover"] is True
+    assert decide({}, panel=False, battery=True)["discover"] is False
+    assert decide({"closedIntervalSec": 60}, panel=False)["discover"] is False
+    # a desktop with no battery keeps the old always-on behaviour
+    assert decide({})["discover"] is True
+
+
+def test_home_network_permits_discovery() -> None:
+    got = decide({"homeGatewayMac": HOME}, panel=True, gw=HOME)
+    assert got["probe"] is True and got["discover"] is True
+
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(list(globals().items())):
         if _name.startswith("test_") and callable(_fn):

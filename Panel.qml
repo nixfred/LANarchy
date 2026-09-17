@@ -1568,6 +1568,11 @@ Panel {
       ip: c.ip ? String(c.ip) : null
     }
     if (c.mac) node.mac = String(c.mac)
+    // Keep the mDNS service list: it is the only evidence that separates a Mac
+    // from a Linux box when TTL cannot (both answer 64), and os_lib reads it.
+    if (c.services instanceof Array && c.services.length > 0) {
+      node.services = c.services.slice(0, 12)
+    }
     if (c.host) {
       var h = String(c.host).replace(/\.local$/i, "")
       node.dns = h.indexOf(".") >= 0 ? h : (h + ".local")
@@ -1854,6 +1859,7 @@ Panel {
 
   // Compact dash row: colour light + label + optional member lights + metric.
   component MeshRow: Item {
+    id: meshRow
     property string label: ""
     property string status: "unknown"
     property string metric: ""
@@ -1900,13 +1906,16 @@ Panel {
       }
       Sparkline {
         id: rowSpark
-        visible: nodeId !== ""
+        visible: meshRow.nodeId !== ""
         Layout.preferredWidth: 56
         Layout.preferredHeight: 14
         Layout.alignment: Qt.AlignVCenter
-        nodeId: nodeId
+        // `nodeId: nodeId` would bind the Sparkline's own property to itself:
+        // QML resolves an unqualified name against the innermost object first.
+        nodeId: meshRow.nodeId
         pluginDir: root.pluginDir
-        live: root.opened && root.view === "glance" && root.glanceTab === "list" && nodeId !== ""
+        live: root.opened && root.view === "glance" && root.glanceTab === "list"
+            && meshRow.nodeId !== ""
         stroke: root.ink
         rateStroke: Color.accent
         muted: root.inkDim

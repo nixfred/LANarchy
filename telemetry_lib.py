@@ -14,7 +14,9 @@ HTTP_TIMEOUT_S = 4.0
 C_LOCALE = dict(os.environ, LC_ALL="C", LANG="C")
 
 # One remote shell prints link lines (L), /proc/net/dev rows (D), uptime (U),
-# and ss -tunH sockets (T). Counts only; no -p, so no extra privilege.
+# and ss -tunHn sockets (T). Counts only; no -p, so no extra privilege.
+# -n matters: without it ss reverse-resolves every peer, which on a busy box
+# outruns SSH_TIMEOUT_S and costs us the entire report, not just the counts.
 REMOTE_SCRIPT = r"""
 for i in /sys/class/net/*; do
   n=$(basename "$i")
@@ -31,7 +33,7 @@ tail -n +3 /proc/net/dev | sed 's/^/D /'
 sed 's/^/U /' /proc/uptime
 echo "O $(uname -s 2>/dev/null) $(uname -r 2>/dev/null)"
 if command -v ss >/dev/null 2>&1; then
-  ss -tunH 2>/dev/null | sed 's/^/T /'
+  ss -tunHn 2>/dev/null | sed 's/^/T /'
 fi
 true
 """

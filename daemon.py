@@ -50,7 +50,7 @@ def loop() -> int:
             now = time.monotonic()
             if gate["probe"] and (last_probe == 0.0 or now - last_probe >= gate["sleep_s"]):
                 try:
-                    run_probe(write_stdout=False)
+                    run_probe(write_stdout=False, discover=bool(gate.get("discover", True)))
                 except Exception as e:
                     print(f"lanarchy daemon: {type(e).__name__}: {e}", flush=True)
                 last_probe = time.monotonic()

@@ -27,7 +27,7 @@ from history_lib import (
     set_node_meta,
 )
 from groups_lib import attach_status, group_nodes, leftover_rows
-from inventory_lib import load_inventory, probe_target
+from inventory_lib import load_inventory, probe_fallback_host, probe_target
 from notify_lib import process_probe_glance
 from os_lib import identify
 from plugin_paths import (
@@ -127,6 +127,14 @@ def probe_rtt_node(node: dict) -> dict:
     host, _port, _url = probe_target(node)
     host = host or ""
     status, rtt, ttl = ping_host(host)
+    if status == "unknown":
+        # The dns name did not resolve. We stored an address for exactly this
+        # case, so use it rather than reporting a box we can reach as unknown.
+        fallback = probe_fallback_host(node)
+        if fallback:
+            alt_status, alt_rtt, alt_ttl = ping_host(fallback)
+            if alt_status != "unknown":
+                host, status, rtt, ttl = fallback, alt_status, alt_rtt, alt_ttl
     row = {
         "id": str(node.get("id") or host),
         "label": str(node.get("label") or node.get("id") or host),
@@ -144,11 +152,15 @@ def probe_machine_node(node: dict, hist: dict, ts_now: float) -> dict:
     row = probe_rtt_node(node)
     if row["status"] != "up" or node.get("telemetry") is False:
         # No telemetry hop, so TTL (when the host answered at all) is all there is.
-        row["os"] = identify(ttl=row.get("ttl"), role=node.get("role"))
+        row["os"] = identify(
+            ttl=row.get("ttl"), services=node.get("services"), role=node.get("role")
+        )
         return row
     report = collect_machine(row["host"], node.get("sshUser"))
     if not report:
-        row["os"] = identify(ttl=row.get("ttl"), role=node.get("role"))
+        row["os"] = identify(
+            ttl=row.get("ttl"), services=node.get("services"), role=node.get("role")
+        )
         return row
     link = primary_link(report)
     if link:
@@ -171,6 +183,7 @@ def probe_machine_node(node: dict, hist: dict, ts_now: float) -> dict:
     row["os"] = identify(
         uname=report.get("uname_s"),
         ttl=row.get("ttl"),
+        services=node.get("services"),
         role=node.get("role"),
     )
     if report.get("uname_r"):
@@ -326,17 +339,17 @@ def main() -> int:
     return 1 if payload.get("error") else 0
 
 
-def run_probe(*, write_stdout: bool = True) -> dict:
+def run_probe(*, write_stdout: bool = True, discover: bool = True) -> dict:
     with probe_lock() as acquired:
         if not acquired:
             err = {"error": "another probe is still running"}
             if write_stdout:
                 print(json.dumps(err, indent=2))
             return err
-        return _run_probe_locked(write_stdout=write_stdout)
+        return _run_probe_locked(write_stdout=write_stdout, discover=discover)
 
 
-def _run_probe_locked(*, write_stdout: bool = True) -> dict:
+def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> dict:
     try:
         inv = load_inventory(inventory_file())
     except Exception as e:
@@ -357,7 +370,7 @@ def _run_probe_locked(*, write_stdout: bool = True) -> dict:
         proxies_f = [pool.submit(probe_proxy_node, x) for x in proxy_nodes]
         meta_f = pool.submit(lan_meta, nodes, hist, ts_now)
         unifi_f = pool.submit(collect_unifi, inv, nodes)
-        discover_f = pool.submit(collect_discover)
+        discover_f = pool.submit(collect_discover) if discover else None
         machines = [f.result() for f in machines_f]
         host_rows = [f.result() for f in all_host_f]
         proxies = [f.result() for f in proxies_f]
@@ -367,7 +380,7 @@ def _run_probe_locked(*, write_stdout: bool = True) -> dict:
         except Exception as e:
             unifi = {"ok": False, "auth": "none", "error": str(e)[:160], "devices": [], "clients": [], "discover": []}
         try:
-            found = discover_f.result()
+            found = discover_f.result() if discover_f is not None else []
         except Exception:
             found = []
     by_id: dict[str, dict] = {}

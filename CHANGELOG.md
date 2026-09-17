@@ -3,6 +3,41 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.7.0 - 2026-09-17
+
+- **Cards lead with a name, not an identifier.** `RINCON_5CAAFD26F5E201400@Living Room`
+  becomes **Living Room**, because the owner's own name for it was inside that
+  string all along. Model serials (`Android_R5UE8DLF`), UUIDs and bare addresses
+  stop being headlines; the identifier is kept and moves to the card detail
+- Devices get a kind from what they advertise (Sonos, Android TV, Printer,
+  Linux desktop, VM, Ubiquiti), so a thing with no name at least says what it is.
+  A class-only name carries the host octet, since two boxes both called
+  "Ubiquiti" cannot be told apart
+- Privacy (locally-administered) MACs are flagged. That is why a phone keeps
+  reappearing as a brand new device
+- **Fixed: every sparkline in the List view was dead.** `nodeId: nodeId` bound
+  the Sparkline's own property to itself, because QML resolves an unqualified
+  name against the innermost object first, so the row id never reached it
+- **Fixed: a machine could vanish from the dashboard entirely.** Any group of 2+
+  members became a service, and `leftover_rows` only ever emits hosts and
+  proxies, so a `machine` absorbed into a group appeared in neither band. A
+  colliding key was enough, for instance a machine `caddy` beside the proxy
+  `caddy-health`, whose `-health` suffix strips to the same key. Machines are now
+  never absorbed
+- **Fixed: a node with an unresolvable dns name reported `unknown` forever** even
+  when a working address was stored beside it. Discovery guesses names
+  (`<label>.lan`), and the guess was preferred with no fallback
+- **Discovery no longer runs off your home network.** Probing touches your own
+  inventory; discovery sweeps the subnet with TCP connects to 22/3389 and SSH
+  attempts. That is fine at home and is port-scanning on hotel wifi, so it is
+  refused away from `homeGatewayMac` even with the panel open, and skipped
+  whenever the panel is closed. Closed-panel probe cycles dropped 8.4s to 1.0s
+- `ss -tunH` gained `-n`. Without it `ss` reverse-resolves every peer, which on a
+  busy box outruns the SSH timeout and costs the entire telemetry report
+- mDNS service evidence now reaches OS detection, which it never did before, so
+  an Apple box is identified as macOS rather than guessed `UNIX?` from its TTL
+- Starter no longer ships the `caddy-health` node
+
 ## 0.6.0 - 2026-09-17
 
 - **Real machines stop hiding in the LAN bucket.** A candidate was only ever
