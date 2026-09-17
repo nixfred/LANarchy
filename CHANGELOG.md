@@ -3,6 +3,11 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.11 — 2026-09-17
+
+- Visio-style orthogonal edges attach to card borders (not through centers)
+- **FLOW** / **STATIC** toggle (`a`) for animated traffic; animation actually moves again
+
 ## 0.3.10 — 2026-09-17
 
 - Calm traffic: one shared slow pulse, modest width from real link rates only (no aggregate bleed / yellow overlays)

@@ -43,6 +43,7 @@ Panel {
   property var mapLayout: []
   property string mapSelectedId: ""
   property real edgePhase: 0
+  property bool mapAnimate: true
   property bool loading: false
   property bool expectedStop: false
   property string error: ""
@@ -401,12 +402,91 @@ Panel {
   }
 
   function edgeFlowPeriod(bps) {
-    // One calm pace for every edge — looks like a shared march, not competing clocks.
-    return 9.5
+    return 1.0
   }
 
   function edgePulseSec(rowA, rowB) {
     return root.edgeFlowPeriod(root.edgeFlowBps(rowA, rowB))
+  }
+
+  function setMapAnimate(on) {
+    root.mapAnimate = !!on
+    var settings = ({})
+    var k
+    for (k in root.invSettings) settings[k] = root.invSettings[k]
+    settings.mapAnimate = root.mapAnimate
+    root.invSettings = settings
+    if (!root.inventoryReady || root.inventoryLoading) return
+    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return
+    root.runInventoryWrite(root.inventoryWritePayload(root.nodes, settings))
+  }
+
+  // Visio-style: attach to card borders, then Manhattan elbows through the gaps.
+  function mapBoxAnchor(box, towardX, towardY) {
+    var cx = box.x + box.w / 2
+    var cy = box.y + box.h / 2
+    var dx = towardX - cx
+    var dy = towardY - cy
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return {
+        x: dx >= 0 ? box.x + box.w : box.x,
+        y: cy,
+        side: dx >= 0 ? "right" : "left"
+      }
+    }
+    return {
+      x: cx,
+      y: dy >= 0 ? box.y + box.h : box.y,
+      side: dy >= 0 ? "bottom" : "top"
+    }
+  }
+
+  function mapStubOut(anchor, dist) {
+    var d = dist || Style.space(12)
+    if (anchor.side === "left") return { x: anchor.x - d, y: anchor.y }
+    if (anchor.side === "right") return { x: anchor.x + d, y: anchor.y }
+    if (anchor.side === "top") return { x: anchor.x, y: anchor.y - d }
+    return { x: anchor.x, y: anchor.y + d }
+  }
+
+  function strokeMapEdge(ctx, aBox, bBox, barMidX, kind) {
+    var aC = { x: aBox.x + aBox.w / 2, y: aBox.y + aBox.h / 2 }
+    var bC = { x: bBox.x + bBox.w / 2, y: bBox.y + bBox.h / 2 }
+    var a0, b0, a1, b1
+    // Prefer side exits for WAN across the router column.
+    if (kind === "wan" && barMidX) {
+      a0 = { x: aBox.x + aBox.w, y: aC.y, side: "right" }
+      b0 = { x: bBox.x, y: bC.y, side: "left" }
+    } else {
+      a0 = root.mapBoxAnchor(aBox, bC.x, bC.y)
+      b0 = root.mapBoxAnchor(bBox, aC.x, aC.y)
+    }
+    a1 = root.mapStubOut(a0, Style.space(10))
+    b1 = root.mapStubOut(b0, Style.space(10))
+    ctx.moveTo(a0.x, a0.y)
+    ctx.lineTo(a1.x, a1.y)
+    if (Math.abs(a1.x - b1.x) < 1.5) {
+      ctx.lineTo(b1.x, b1.y)
+    } else if (Math.abs(a1.y - b1.y) < 1.5) {
+      ctx.lineTo(b1.x, b1.y)
+    } else if (kind === "wan" && barMidX) {
+      ctx.lineTo(barMidX, a1.y)
+      ctx.lineTo(barMidX, b1.y)
+      ctx.lineTo(b1.x, b1.y)
+    } else {
+      // Elbow in the gap between cards (not through their interiors).
+      var midY = (a1.y + b1.y) / 2
+      var midX = (a1.x + b1.x) / 2
+      if (a0.side === "bottom" || a0.side === "top" || b0.side === "bottom" || b0.side === "top") {
+        ctx.lineTo(a1.x, midY)
+        ctx.lineTo(b1.x, midY)
+      } else {
+        ctx.lineTo(midX, a1.y)
+        ctx.lineTo(midX, b1.y)
+      }
+      ctx.lineTo(b1.x, b1.y)
+    }
+    ctx.lineTo(b0.x, b0.y)
   }
 
   function routerMachine() {
@@ -1121,6 +1201,7 @@ Panel {
       cleaned[sk] = rawSettings[sk]
     }
     root.invSettings = cleaned
+    root.mapAnimate = cleaned.mapAnimate !== false
     if (!root.asOf) {
       var seeded = []
       var i, n
@@ -1975,6 +2056,7 @@ Panel {
         if (k === "r") root.refresh()
         if (k === "m" || k === "l") root.glanceTab = root.glanceTab === "map" ? "list" : "map"
         if (k === "h" && root.mapSelectedId) root.toggleMapHidden(root.mapSelectedId)
+        if (k === "a" && root.glanceTab === "map") root.setMapAnimate(!root.mapAnimate)
         if (k === "s") root.goSetup()
       }
       onMoveRequested: function(dx, dy) {
@@ -2038,8 +2120,8 @@ Panel {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · 1⁄3 EXTERNAL"
-                        : "Machines → Caddy → services · Move to LAN demotes into the LAN bucket")
+                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · Visio elbows · FLOW toggles animation"
+                        : "Machines → Caddy → services · FLOW toggles animation")
                     : "Dash · colour lights · Move to LAN for noise"
                 color: root.inkDim
                 font.family: root.fontFamily
@@ -2094,6 +2176,13 @@ Panel {
               text: "List"
               selected: root.glanceTab === "list"
               onClicked: root.glanceTab = "list"
+            }
+            Item { width: Style.space(8); height: 1 }
+            SegBtn {
+              visible: root.glanceTab === "map"
+              label: root.mapAnimate ? "FLOW" : "STATIC"
+              active: root.mapAnimate
+              onTapped: root.setMapAnimate(!root.mapAnimate)
             }
             Item { width: Style.space(8); height: 1 }
             Text {
@@ -2192,7 +2281,6 @@ Panel {
                   var tot = root.lanTrafficTotals()
                   var bps = Math.max(tot.rx_bps || 0, tot.tx_bps || 0)
                   var w = root.edgeFlowWidth(bps)
-                  var period = root.edgeFlowPeriod(bps)
                   var cx = width / 2
                   var y0 = 10
                   var y1 = height - 10
@@ -2204,15 +2292,17 @@ Panel {
                   ctx.moveTo(cx, y0)
                   ctx.lineTo(cx, y1)
                   ctx.stroke()
-                  ctx.strokeStyle = Qt.alpha(accent, 0.78)
-                  ctx.lineWidth = Math.max(1.4, w * 0.4)
-                  ctx.setLineDash([14, 22])
-                  ctx.lineDashOffset = -phase * (22 / period)
-                  ctx.beginPath()
-                  ctx.moveTo(cx, y0)
-                  ctx.lineTo(cx, y1)
-                  ctx.stroke()
-                  ctx.setLineDash([])
+                  if (root.mapAnimate) {
+                    ctx.strokeStyle = Qt.alpha(accent, 0.85)
+                    ctx.lineWidth = Math.max(1.5, w * 0.45)
+                    ctx.setLineDash([10, 16])
+                    ctx.lineDashOffset = -phase
+                    ctx.beginPath()
+                    ctx.moveTo(cx, y0)
+                    ctx.lineTo(cx, y1)
+                    ctx.stroke()
+                    ctx.setLineDash([])
+                  }
                 }
               }
 
@@ -2266,11 +2356,12 @@ Panel {
             }
 
             Timer {
-              interval: 80
-              running: root.opened && root.view === "glance" && root.glanceTab === "map"
+              interval: 50
+              running: root.opened && root.view === "glance" && root.glanceTab === "map" && root.mapAnimate
               repeat: true
               onTriggered: {
-                root.edgePhase = (root.edgePhase + 0.028) % 1000
+                // Visible march: ~40 dash-units/sec against [10,16] pattern.
+                root.edgePhase = (root.edgePhase + 2.0) % 1000
                 edgeCanvas.requestPaint()
                 if (routerTrafficCanvas) routerTrafficCanvas.requestPaint()
               }
@@ -2279,74 +2370,62 @@ Panel {
             Canvas {
               id: edgeCanvas
               anchors.fill: parent
+              z: 0
               onPaint: {
                 var ctx = getContext("2d")
                 ctx.clearRect(0, 0, width, height)
-                var pos = {}
+                var boxes = ({})
                 var i, box
                 for (i = 0; i < root.mapLayout.length; i++) {
                   box = root.mapLayout[i]
-                  pos[box.id] = {
-                    x: box.x + box.w / 2,
-                    y: box.y + box.h / 2
+                  boxes[box.id] = {
+                    x: box.x, y: box.y, w: box.w, h: box.h
                   }
                 }
-                var hubId = root.mapHubId()
-                var hubPos = hubId ? pos[hubId] : null
                 var barMidX = root.mapHasExternal
                     ? (root.mapSplitX + root.mapBarWidth / 2)
                     : 0
-                var period = root.edgeFlowPeriod(0)
-
-                function strokePath(a, b, e) {
-                  ctx.beginPath()
-                  ctx.moveTo(a.x, a.y)
-                  var kind = String(e.kind || "")
-                  if (kind === "wan" && barMidX) {
-                    ctx.bezierCurveTo(barMidX, a.y, barMidX, b.y, b.x, b.y)
-                  } else if (hubPos && String(e.from) !== hubId && String(e.to) !== hubId) {
-                    ctx.bezierCurveTo(hubPos.x, a.y, hubPos.x, b.y, b.x, b.y)
-                  } else {
-                    var mx = (a.x + b.x) / 2
-                    var my = (a.y + b.y) / 2 - Style.space(14)
-                    ctx.quadraticCurveTo(mx, my, b.x, b.y)
-                  }
-                  ctx.stroke()
-                }
 
                 ctx.lineCap = "round"
                 ctx.lineJoin = "round"
                 for (i = 0; i < root.mapEdges.length; i++) {
                   var e = root.mapEdges[i]
-                  var a = pos[String(e.from || "")]
-                  var b = pos[String(e.to || "")]
-                  if (!a || !b) continue
+                  var aBox = boxes[String(e.from || "")]
+                  var bBox = boxes[String(e.to || "")]
+                  if (!aBox || !bBox) continue
                   var rowA = root.glanceRowById(e.from)
                   var rowB = root.glanceRowById(e.to)
                   var bps = root.edgeFlowBps(rowA, rowB)
                   var w = root.edgeFlowWidth(bps)
-                  var isWan = String(e.kind || "") === "wan"
+                  var kind = String(e.kind || "")
+                  var isWan = kind === "wan"
                   var base = isWan ? Color.accent : root.themeGreen
-                  // Quiet body
-                  ctx.strokeStyle = Qt.alpha(base, 0.28)
+                  ctx.strokeStyle = Qt.alpha(base, 0.30)
                   ctx.lineWidth = w
                   ctx.setLineDash([])
-                  strokePath(a, b, e)
-                  // Single slow pulse — same cadence on every link
-                  ctx.strokeStyle = Qt.alpha(base, 0.75)
-                  ctx.lineWidth = Math.max(1.3, w * 0.42)
-                  ctx.setLineDash([12, 20])
-                  ctx.lineDashOffset = -root.edgePhase * (22 / period)
-                  strokePath(a, b, e)
-                  ctx.setLineDash([])
+                  ctx.beginPath()
+                  root.strokeMapEdge(ctx, aBox, bBox, barMidX, kind)
+                  ctx.stroke()
+                  if (root.mapAnimate) {
+                    ctx.strokeStyle = Qt.alpha(base, 0.82)
+                    ctx.lineWidth = Math.max(1.4, w * 0.45)
+                    ctx.setLineDash([10, 16])
+                    ctx.lineDashOffset = -root.edgePhase
+                    ctx.beginPath()
+                    root.strokeMapEdge(ctx, aBox, bBox, barMidX, kind)
+                    ctx.stroke()
+                    ctx.setLineDash([])
+                  }
                 }
               }
             }
 
             Repeater {
               model: root.mapLayout
+              z: 1
               delegate: MapCard {
                 required property var modelData
+                z: 1
                 x: modelData.x
                 y: modelData.y
                 width: modelData.w

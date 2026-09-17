@@ -62,6 +62,7 @@ Normalization rules:
 - Unknown keys on nodes are preserved through load/save when present in file (forward-compatible).
 - `edges[]` is **curated**, not auto N². Empty or missing → derive default hub edges (see below).
 - `inventory_cli write`: if the payload omits `settings` / `edges`, existing on-disk values are kept. Send `"settings": {}` (or a partial object) to clear or replace. Empty settings are not written back to disk.
+- `settings.mapAnimate`: when `false`, map edges are static Visio elbows; default `true` pulses a dash along those routes.
 
 ## Edge graph (v1)
 
