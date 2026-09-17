@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.8.1-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.2-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -93,7 +93,7 @@ Shipped `inventory.json` is a tiny localhost starter. Use **Setup → Search net
 | Action | How |
 |--------|-----|
 | Open / close | Click the castle-socket bar icon · Esc closes |
-| Choose the bar readout | **Right-click** the bar icon · or `omarchy-shell donnie.homelab-mesh barDisplay <mode>` |
+| Choose the bar readout | **Right-click** the bar icon · or `omarchy-shell lanarchy barDisplay <mode>` |
 | Refresh from the bar | Middle-click the bar icon |
 | List / Map | Tabs or `l` / `m` |
 | Hide / demote selected card | Detail **Move to LAN** or `h` — card joins the LAN bucket (still probed) |
@@ -282,15 +282,15 @@ omarchy-shell shell hide donnie.homelab-mesh
 omarchy-shell shell rescanPlugins
 ```
 
-Plugin IPC (no mouse required):
+Plugin IPC (target is `lanarchy`; the plugin id is taken by the host's own panel handler):
 
 ```bash
-omarchy-shell donnie.homelab-mesh status            # "1 down · 8 tracked · <as_of>"
-omarchy-shell donnie.homelab-mesh open|close|toggle
-omarchy-shell donnie.homelab-mesh map|list|setup
-omarchy-shell donnie.homelab-mesh modes             # the bar readout chooser
-omarchy-shell donnie.homelab-mesh barDisplay wan    # set the readout directly
-omarchy-shell donnie.homelab-mesh refresh
+omarchy-shell lanarchy status            # "1 down · 8 tracked · <as_of>"
+omarchy-shell lanarchy open|close|toggle
+omarchy-shell lanarchy map|list|setup
+omarchy-shell lanarchy modes             # the bar readout chooser
+omarchy-shell lanarchy barDisplay wan    # set the readout directly
+omarchy-shell lanarchy refresh
 ```
 
 One-shot collector (debug):

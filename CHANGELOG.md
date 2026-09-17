@@ -3,6 +3,16 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.8.2 - 2026-09-17
+
+- **Plugin IPC works again.** The handler claimed the plugin id as its target, but
+  the host's own `Ui/Panel` base already registers one there, and a second
+  registration for the same target is discarded. Every function was silently
+  gone. The target is now `lanarchy`: `omarchy-shell lanarchy status`
+- Fixed a `TypeError` that fired on every repaint when no node had flapped. A QML
+  binding is evaluated whether or not its item is visible, so guarding with
+  `visible:` was not enough
+
 ## 0.8.1 - 2026-09-17
 
 - **The map wraps instead of cramming, and the panel grows to fit it.** Cards were

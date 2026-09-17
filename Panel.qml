@@ -2687,7 +2687,10 @@ Panel {
   // Scriptable surface. `omarchy-shell donnie.homelab-mesh <fn>` drives the
   // panel without the mouse, which also makes the views testable.
   IpcHandler {
-    target: "donnie.homelab-mesh"
+    // NOT the plugin id: the host's Ui/Panel base already registers a handler on
+    // that target, and a second registration for the same target is discarded,
+    // which silently removed every function below.
+    target: "lanarchy"
 
     function open(): void { root.pendingView = ""; root.open() }
     function close(): void { root.close() }
@@ -3471,8 +3474,12 @@ Panel {
                   Text {
                     visible: root.flapping.length > 0
                     text: {
+                      // `visible` does not stop a binding being evaluated, so an
+                      // empty list must be handled here, not upstream.
+                      if (root.flapping.length === 0) return ""
                       var f = root.flapping[0]
-                      return "unstable: " + root.nodeLabelById(f.id) + " flapped " + f.count + "x in the last hour"
+                      return "unstable: " + root.nodeLabelById(f.id)
+                          + " flapped " + f.count + "x in the last hour"
                     }
                     color: root.themeYellow
                     font.family: root.fontFamily
