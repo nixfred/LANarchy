@@ -30,7 +30,6 @@ Optional **root** fields (v2.1, ignored by readers that only know v2):
   "schemaVersion": 2,
   "settings": {
     "failStreakThreshold": 3,
-    "mapQuietUp": false,
     "unifi": {
       "url": "https://192.168.1.1",
       "site": "default"
@@ -63,7 +62,6 @@ Normalization rules:
 - Unknown keys on nodes are preserved through load/save when present in file (forward-compatible).
 - `edges[]` is **curated**, not auto N². Empty or missing → derive default hub edges (see below).
 - `inventory_cli write`: if the payload omits `settings` / `edges`, existing on-disk values are kept. Send `"settings": {}` (or a partial object) to clear or replace. Empty settings are not written back to disk.
-- `settings.mapQuietUp`: ISSUES quiet mode (hide healthy LAN services on the map; probes continue).
 
 ## Edge graph (v1)
 

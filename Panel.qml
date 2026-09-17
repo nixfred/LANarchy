@@ -56,9 +56,6 @@ Panel {
   property var lanMeta: ({})
   property var unifi: ({})
   property var discover: []
-  property bool showLan: false
-  property bool showProxies: false
-  property bool mapQuietUp: false
   property var invSettings: ({})
   property string actionStatus: ""
   property bool findHostsBusy: false
@@ -343,9 +340,7 @@ Panel {
       else
         edges.push({ from: hub, to: gid, kind: kind })
     }
-    if (root.quietLan.length && !root.mapQuietUp)
-      edges.push({ from: hub, to: "__lan__", kind: "lan" })
-    else if (root.mapHiddenCount() && !root.mapQuietUp)
+    if (root.lanBucketRows().length)
       edges.push({ from: hub, to: "__lan__", kind: "lan" })
     root.mapEdges = edges
   }
@@ -547,8 +542,8 @@ Panel {
     }
     root.writeNodes(next)
     if (hide) {
-      // Land in the LAN bucket immediately so Hide feels like a move, not a vanish.
-      root.showLan = true
+      // Jump to List so the demoted card is visible in the LAN bucket.
+      root.glanceTab = "list"
     }
     root.rebuildMapEdges()
     root.recalcMapLayout()
@@ -598,21 +593,7 @@ Panel {
     root.recalcMapLayout()
   }
 
-  function setMapQuietUp(on) {
-    root.mapQuietUp = !!on
-    var settings = {}
-    var k
-    for (k in root.invSettings) settings[k] = root.invSettings[k]
-    if (on) settings.mapQuietUp = true
-    else delete settings.mapQuietUp
-    root.invSettings = settings
-    root.writeInventorySettings(settings)
-    root.rebuildMapEdges()
-    root.recalcMapLayout()
-  }
-
-  // Always include settings (even {}) so inventory_cli does not merge stale on-disk keys
-  // such as mapQuietUp when ISSUES is toggled off.
+  // Always include settings (even {}) so inventory_cli does not merge stale on-disk keys.
   function inventoryWritePayload(nodes, settings) {
     return {
       schemaVersion: 2,
@@ -631,23 +612,12 @@ Panel {
     return true
   }
 
-  function writeInventorySettings(settings) {
-    if (!root.inventoryReady || root.inventoryLoading) return false
-    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return false
-    return root.runInventoryWrite(root.inventoryWritePayload(root.nodes, settings))
-  }
-
-  // Map visibility: permanent mapHidden, plus quiet mode that drops healthy services.
-  // Probes keep running either way — only the letterbox is filtered (NetBox-style declutter).
+  // mapHidden demotes into the LAN bucket; everything else stays on the letterbox.
   function mapRowVisible(row, kind) {
     if (!row) return false
     var id = String(row.id || "")
     if (kind === "router" || kind === "hub") return true
     if (root.mapHiddenForId(id)) return false
-    if (root.mapQuietUp && kind !== "external") {
-      var st = root.displayStatus(row)
-      if (st === "up" && (kind === "service" || kind === "lan")) return false
-    }
     return true
   }
 
@@ -1060,14 +1030,10 @@ Panel {
     if (root.error) return "ERROR"
     if (!root.asOf) return "NO DATA"
     if (root.snapshotStale()) return "STALE"
-    var total = root.machines.length + root.groups.length
-    if (root.showLan) total += root.lanBucketRows().length
-    if (root.showProxies) total += root.quietProxies.length
+    var total = root.machines.length + root.groups.length + root.lanBucketRows().length + root.quietProxies.length
     if (total === 0) return "NO DATA"
     var down = 0
-    var bands = [root.machines, root.groups]
-    if (root.showLan) bands.push(root.lanBucketRows())
-    if (root.showProxies) bands.push(root.quietProxies)
+    var bands = [root.machines, root.groups, root.lanBucketRows(), root.quietProxies]
     var b, i
     for (b = 0; b < bands.length; b++) {
       for (i = 0; i < bands[b].length; i++) {
@@ -1161,8 +1127,15 @@ Panel {
     }
     root.nodes = data.nodes
     root.mapEdges = data.edges instanceof Array ? data.edges : []
-    root.invSettings = data.settings && typeof data.settings === "object" ? data.settings : ({})
-    root.mapQuietUp = root.invSettings.mapQuietUp === true
+    // Drop retired mapQuietUp if still on disk from older builds.
+    var rawSettings = data.settings && typeof data.settings === "object" ? data.settings : ({})
+    var cleaned = ({})
+    var sk
+    for (sk in rawSettings) {
+      if (sk === "mapQuietUp") continue
+      cleaned[sk] = rawSettings[sk]
+    }
+    root.invSettings = cleaned
     if (!root.asOf) {
       var seeded = []
       var i, n
@@ -2016,10 +1989,7 @@ Panel {
         var k = String(text || "").toLowerCase()
         if (k === "r") root.refresh()
         if (k === "m" || k === "l") root.glanceTab = root.glanceTab === "map" ? "list" : "map"
-        if (k === "n") { root.showLan = !root.showLan; root.recalcMapLayout() }
-        if (k === "q") root.setMapQuietUp(!root.mapQuietUp)
         if (k === "h" && root.mapSelectedId) root.toggleMapHidden(root.mapSelectedId)
-        if (k === "p") root.showProxies = !root.showProxies
         if (k === "s") root.goSetup()
       }
       onMoveRequested: function(dx, dy) {
@@ -2083,9 +2053,9 @@ Panel {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · 1⁄3 EXTERNAL · ISSUES hides healthy services"
+                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · 1⁄3 EXTERNAL"
                         : "Machines → Caddy → services · Move to LAN demotes into the LAN bucket")
-                    : "Dash · colour lights · toggle the noise"
+                    : "Dash · colour lights · Move to LAN for noise"
                 color: root.inkDim
                 font.family: root.fontFamily
                 font.pixelSize: 11
@@ -2139,26 +2109,6 @@ Panel {
               text: "List"
               selected: root.glanceTab === "list"
               onClicked: root.glanceTab = "list"
-            }
-            Item { width: Style.space(8); height: 1 }
-            SegBtn {
-              label: "LAN" + (root.lanBucketRows().length ? " " + root.lanBucketRows().length : "")
-              active: root.showLan
-              onTapped: {
-                root.showLan = !root.showLan
-                root.recalcMapLayout()
-              }
-            }
-            SegBtn {
-              label: "PROXIES" + (root.quietProxies.length ? " " + root.quietProxies.length : "")
-              active: root.showProxies
-              onTapped: root.showProxies = !root.showProxies
-            }
-            SegBtn {
-              visible: root.glanceTab === "map"
-              label: root.mapQuietUp ? "ISSUES" : "ALL"
-              active: root.mapQuietUp
-              onTapped: root.setMapQuietUp(!root.mapQuietUp)
             }
             Item { width: Style.space(8); height: 1 }
             Text {
@@ -2478,7 +2428,6 @@ Panel {
                 onActivated: {
                   root.mapSelectedId = nodeId
                   if (nodeId === "__lan__") {
-                    root.showLan = true
                     root.glanceTab = "list"
                   }
                 }
@@ -2645,12 +2594,12 @@ Panel {
               }
 
               BandCap {
-                visible: root.showLan
+                visible: root.lanBucketRows().length > 0
                 title: "LAN"
                 width: parent.width
               }
               Row {
-                visible: root.showLan && root.mapHiddenCount() > 0
+                visible: root.mapHiddenCount() > 0
                 width: parent.width
                 spacing: Style.space(8)
                 Text {
@@ -2667,7 +2616,7 @@ Panel {
                 }
               }
               Repeater {
-                model: root.showLan ? root.lanBucketRows() : []
+                model: root.lanBucketRows()
                 RowLayout {
                   required property var modelData
                   width: parent.width
@@ -2693,12 +2642,12 @@ Panel {
               }
 
               BandCap {
-                visible: root.showProxies
+                visible: root.quietProxies.length > 0
                 title: "PROXIES"
                 width: parent.width
               }
               Repeater {
-                model: root.showProxies ? root.quietProxies : []
+                model: root.quietProxies
                 MeshRow {
                   required property var modelData
                   width: parent.width
@@ -2726,7 +2675,7 @@ Panel {
             horizontalAlignment: Text.AlignHCenter
             text: root.glanceTab === "map"
                 ? "Move to LAN / Show on map · click LAN cluster · m list"
-                : "LAN bucket holds leftovers + demoted · Show restores · m map · r refresh"
+                : "LAN bucket = leftovers + demoted · Show restores · m map · r refresh"
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.3.8-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.9-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Config: `~/.config/omarchy/plugins/homelab-mesh/`  
@@ -92,8 +92,6 @@ cp unifi-secrets.json.example ~/.config/omarchy/plugins/homelab-mesh/unifi-secre
 |--------|-----|
 | Open / close | Click the castle-socket bar icon · Esc closes |
 | List / Map | Tabs or `l` / `m` |
-| Leftover LAN / proxies | `LAN N` / `PROXIES` or `n` / `p` |
-| Map quiet (hide healthy services) | `ISSUES` chip or `q` — still probes everything |
 | Hide / demote selected card | Detail **Move to LAN** or `h` — card joins the LAN bucket (still probed) |
 | Restore to main map | List → **LAN** → **Show** (or **Show all on map**) |
 | Refresh | `r` |
@@ -216,7 +214,6 @@ python3 history_cli.py sparkline --id <node>
 | **router** subline | `role: router` / `mapBand: router` machine (e.g. redUltra) — WAN bar + rates |
 | **LIVE · …** pill | Aggregate health + `as_of` |
 | **Map / List** | View tabs |
-| **LAN N / PROXIES** | Leftover bands |
 | **ALERT / MUTE** | Per-node notify on map cards |
 | **Sparklines** | Recent RTT from history |
 | **machine / host / proxy** chips | Setup inventory type |
