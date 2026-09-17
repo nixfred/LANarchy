@@ -92,8 +92,86 @@ def test_write_keeps_group_and_map_extras() -> None:
         assert node["mapBand"] == "host"
 
 
+def test_empty_settings_clears_map_quiet() -> None:
+    """Panel always sends settings (even {}); omit must not revive mapQuietUp from disk."""
+    with tempfile.TemporaryDirectory() as td:
+        inv = Path(td) / "inventory.json"
+        inv.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 2,
+                    "settings": {"mapQuietUp": True, "failStreakThreshold": 3},
+                    "nodes": [
+                        {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        # Omitting settings merges on-disk (legacy bug when ISSUES was toggled off).
+        proc_omit = _write(
+            inv,
+            {
+                "schemaVersion": 2,
+                "nodes": [
+                    {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None}
+                ],
+            },
+        )
+        assert proc_omit.returncode == 0, proc_omit.stderr
+        merged = json.loads(inv.read_text(encoding="utf-8"))
+        assert merged.get("settings", {}).get("mapQuietUp") is True
+
+        # Explicit empty settings clears quiet mode (and other settings keys).
+        proc_clear = _write(
+            inv,
+            {
+                "schemaVersion": 2,
+                "settings": {},
+                "nodes": [
+                    {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None}
+                ],
+            },
+        )
+        assert proc_clear.returncode == 0, proc_clear.stderr
+        cleared = json.loads(inv.read_text(encoding="utf-8"))
+        assert "mapQuietUp" not in (cleared.get("settings") or {})
+
+
+def test_write_keeps_partial_settings() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        inv = Path(td) / "inventory.json"
+        inv.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 2,
+                    "settings": {"mapQuietUp": True, "failStreakThreshold": 3},
+                    "nodes": [
+                        {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        proc = _write(
+            inv,
+            {
+                "schemaVersion": 2,
+                "settings": {"failStreakThreshold": 3},
+                "nodes": [
+                    {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None}
+                ],
+            },
+        )
+        assert proc.returncode == 0, proc.stderr
+        saved = json.loads(inv.read_text(encoding="utf-8"))["settings"]
+        assert saved == {"failStreakThreshold": 3}
+
+
 if __name__ == "__main__":
     test_refuse_empty_write()
     test_write_keeps_one_node()
     test_write_keeps_group_and_map_extras()
+    test_empty_settings_clears_map_quiet()
+    test_write_keeps_partial_settings()
     print("ok")

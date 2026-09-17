@@ -3,6 +3,11 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.5 — 2026-09-17
+
+- ISSUES off always persists: inventory writes send `settings` even when empty (no stale `mapQuietUp` merge)
+- Map hub placement: redUltra on the router bar without also drawing Caddy as a left gateway
+
 ## 0.3.4 — 2026-09-17
 
 - **HIDDEN** drawer: restore cards one-by-one or Show all (replaces unhide-all chip)

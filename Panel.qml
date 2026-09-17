@@ -542,21 +542,30 @@ Panel {
     root.recalcMapLayout()
   }
 
-  function writeInventorySettings(settings) {
-    if (!root.inventoryReady || root.inventoryLoading) return false
-    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return false
-    var payload = { schemaVersion: 2, nodes: root.nodes }
-    if (settings && typeof settings === "object") {
-      var keys = Object.keys(settings)
-      if (keys.length) payload.settings = settings
+  // Always include settings (even {}) so inventory_cli does not merge stale on-disk keys
+  // such as mapQuietUp when ISSUES is toggled off.
+  function inventoryWritePayload(nodes, settings) {
+    return {
+      schemaVersion: 2,
+      nodes: nodes,
+      settings: settings && typeof settings === "object" ? settings : {}
     }
-    var text = JSON.stringify(payload)
+  }
+
+  function runInventoryWrite(payloadObj) {
+    var text = JSON.stringify(payloadObj)
     invWriteProc.command = [
       "bash", "-c",
       "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + text.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
     ]
     invWriteProc.running = true
     return true
+  }
+
+  function writeInventorySettings(settings) {
+    if (!root.inventoryReady || root.inventoryLoading) return false
+    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return false
+    return root.runInventoryWrite(root.inventoryWritePayload(root.nodes, settings))
   }
 
   // Map visibility: permanent mapHidden, plus quiet mode that drops healthy services.
@@ -670,7 +679,24 @@ Panel {
     var machines = root.internalMachines(router)
     colBand(machines, "machine", Style.space(28), "machine", root.machineMetric, null, 0, leftW)
 
-    if (hub && String(hub.zone || "") !== "external") {
+    // Prefer redUltra on the router bar; only fall back to Caddy there when no router machine.
+    // Never place the same hub id twice (left gateway + bar).
+    var hubOnRouterBar = false
+    if (root.mapHasExternal) {
+      var rw = Math.min(Style.space(118), barW - Style.space(14))
+      var rh = Style.space(124)
+      var ry = Math.max(Style.space(56), (h - rh) / 2 - Style.space(12))
+      if (router) {
+        place(router, "router", barX + (barW - rw) / 2, ry, rw, rh, "router",
+              root.routerMetric(router), [])
+      } else if (hub) {
+        place(hub, "router", barX + (barW - rw) / 2, ry, rw, rh, "router",
+              root.serviceMetric(hub), root.serviceLights(hub))
+        hubOnRouterBar = true
+      }
+    }
+
+    if (hub && !hubOnRouterBar && String(hub.zone || "") !== "external") {
       var hubW = Style.space(120)
       var hubH = Style.space(100)
       place(hub, "gateway", (leftW - hubW) / 2, Style.space(132), hubW, hubH, "hub",
@@ -685,19 +711,6 @@ Panel {
       var clusterW = Math.min(Style.space(280), leftW - Style.space(20))
       place(cluster, "leftover", (leftW - clusterW) / 2, Style.space(360),
             clusterW, Style.space(72), "lan", cluster.metric, cluster.lights)
-    }
-
-    if (root.mapHasExternal) {
-      var rw = Math.min(Style.space(118), barW - Style.space(14))
-      var rh = Style.space(124)
-      var ry = Math.max(Style.space(56), (h - rh) / 2 - Style.space(12))
-      if (router) {
-        place(router, "router", barX + (barW - rw) / 2, ry, rw, rh, "router",
-              root.routerMetric(router), [])
-      } else if (hub) {
-        place(hub, "router", barX + (barW - rw) / 2, ry, rw, rh, "router",
-              root.serviceMetric(hub), root.serviceLights(hub))
-      }
     }
 
     if (externals.length) {
@@ -1265,18 +1278,7 @@ Panel {
     }
     root.nodes = nextNodes
     root.inventoryError = ""
-    var payloadObj = { schemaVersion: 2, nodes: nextNodes }
-    if (root.invSettings && typeof root.invSettings === "object") {
-      var keys = Object.keys(root.invSettings)
-      if (keys.length) payloadObj.settings = root.invSettings
-    }
-    var payload = JSON.stringify(payloadObj)
-    invWriteProc.command = [
-      "bash", "-c",
-      "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + payload.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
-    ]
-    invWriteProc.running = true
-    return true
+    return root.runInventoryWrite(root.inventoryWritePayload(nextNodes, root.invSettings))
   }
 
   onOpenedChanged: {
