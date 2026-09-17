@@ -3,6 +3,10 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.10 — 2026-09-17
+
+- Calm traffic: one shared slow pulse, modest width from real link rates only (no aggregate bleed / yellow overlays)
+
 ## 0.3.9 — 2026-09-17
 
 - Drop LAN / PROXIES / ALL (ISSUES) toggles — leftovers and demoted cards always show in List; map shows everything except Move-to-LAN demotions
