@@ -71,10 +71,18 @@ Normalization rules:
 
 Default derivation when `edges` is absent:
 
-1. Pick **hub** = first `type: proxy` with `check: http` and label containing `caddy`, else first proxy, else first machine id.
+1. Pick **hub** = first `type: proxy` with `check: http` and label containing `caddy`, else first proxy, else first machine id. (Panel map always prefers the Caddy **service group** as the L7 reverse-proxy hub.)
 2. For each `machine`, add `{ from: machine.id, to: hub, kind: "hub" }`.
 3. For each `host`, add `{ from: hub, to: host.id, kind: "lan" }` (cap at 24 hosts in UI; rest in LAN super-node clip).
 4. Optional `edges` in inventory **replace** defaults when non-empty.
+
+Map roles (no extra `dns` designation — DNS is a LAN metric, not a hop):
+
+| Affordance | How |
+|------------|-----|
+| Reverse proxy hub | Caddy group (`key: caddy`) — service edges terminate here |
+| Router | machine with `role: router` / `mapBand: router` (or id/label redUltra) — WAN bar + rates |
+| External | node/group `zone: external` |
 
 Edge record:
 

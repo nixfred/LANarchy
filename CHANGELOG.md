@@ -3,6 +3,12 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.6 — 2026-09-17
+
+- Map edges hub on the **reverse proxy** (Caddy), not the UniFi router; WAN lines still cross the router bar
+- Card colour = status only (fill + rim match) — drop orange “hot RTT” wash that fought green borders
+- Hub card labelled `reverse proxy`; no extra dns role needed for overlays
+
 ## 0.3.5 — 2026-09-17
 
 - ISSUES off always persists: inventory writes send `settings` even when empty (no stale `mapQuietUp` merge)

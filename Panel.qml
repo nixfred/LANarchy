@@ -303,25 +303,44 @@ Panel {
     return false
   }
 
-  function rebuildMapEdges() {
-    var router = root.routerMachine()
+  // L7 map hub = reverse proxy (Caddy). Physical router stays on the bar for WAN/rates only.
+  function mapHubId() {
     var hubRow = root.hubGroup()
-    var hub = router ? String(router.id) : (hubRow ? String(hubRow.id) : (root.machines.length ? String(root.machines[0].id || "") : ""))
+    if (hubRow) return String(hubRow.id || "")
+    if (root.machines.length) return String(root.machines[0].id || "")
+    return ""
+  }
+
+  function rebuildMapEdges() {
+    var hub = root.mapHubId()
+    var router = root.routerMachine()
+    var routerId = router ? String(router.id || "") : ""
     var edges = []
     var i, mid, gid
+    if (!hub) {
+      root.mapEdges = []
+      return
+    }
     for (i = 0; i < root.machines.length; i++) {
       mid = String(root.machines[i].id || "")
-      if (!mid || mid === hub) continue
+      if (!mid || mid === hub || mid === routerId) continue
       if (!root.mapRowVisible(root.machines[i], "machine")) continue
       edges.push({ from: mid, to: hub, kind: "lan" })
     }
+    // Router feeds the reverse proxy (L3 gateway ↔ L7 front door).
+    if (routerId && routerId !== hub)
+      edges.push({ from: routerId, to: hub, kind: "lan" })
     for (i = 0; i < root.groups.length; i++) {
       gid = String(root.groups[i].id || "")
       if (gid === hub) continue
       if (!root.mapRowVisible(root.groups[i], String(root.groups[i].zone || "") === "external" ? "external" : "service"))
         continue
       var kind = String(root.groups[i].zone || "") === "external" ? "wan" : "service"
-      edges.push({ from: hub, to: gid, kind: kind })
+      // WAN leaves via the router when we have one; otherwise hub → cloud.
+      if (kind === "wan" && routerId)
+        edges.push({ from: routerId, to: gid, kind: kind })
+      else
+        edges.push({ from: hub, to: gid, kind: kind })
     }
     if (root.quietLan.length && !root.mapQuietUp)
       edges.push({ from: hub, to: "__lan__", kind: "lan" })
@@ -358,10 +377,11 @@ Panel {
   property real mapBarWidth: 0
   property bool mapHasExternal: false
 
+  // Only flag unusually slow peers — normal LAN RTT (3–15ms) must not recolour cards.
   function rttHot(row) {
     if (!row || String(row.status) !== "up") return false
     var n = Number(row.rtt_ms)
-    return isFinite(n) && n > 2
+    return isFinite(n) && n > 50
   }
 
   function edgePulseSec(rowA, rowB) {
@@ -370,10 +390,13 @@ Panel {
       var n = Number(row.rates.rx_bps)
       return isFinite(n) ? n : 0
     }
-    // Prefer live LAN aggregate through the router when either end is the router.
-    var tot = root.lanTrafficTotals()
-    var agg = Math.max(tot.rx_bps || 0, tot.tx_bps || 0)
-    var bps = Math.max(rx(rowA), rx(rowB), agg * 0.35)
+    var bps = Math.max(rx(rowA), rx(rowB))
+    // Router / WAN edges can borrow aggregate LAN rates for dash speed.
+    if (bps < 500) {
+      var tot = root.lanTrafficTotals()
+      var agg = Math.max(tot.rx_bps || 0, tot.tx_bps || 0)
+      if (agg > 500) bps = Math.max(bps, agg * 0.25)
+    }
     if (bps > 500) return Math.max(0.35, Math.min(2.8, 140000 / bps))
     var ms = 0
     if (rowA && rowA.rtt_ms != null) ms = Math.max(ms, Number(rowA.rtt_ms))
@@ -699,7 +722,7 @@ Panel {
     if (hub && !hubOnRouterBar && String(hub.zone || "") !== "external") {
       var hubW = Style.space(120)
       var hubH = Style.space(100)
-      place(hub, "gateway", (leftW - hubW) / 2, Style.space(132), hubW, hubH, "hub",
+      place(hub, "reverse proxy", (leftW - hubW) / 2, Style.space(132), hubW, hubH, "hub",
             root.serviceMetric(hub), root.serviceLights(hub))
     }
 
@@ -1664,39 +1687,24 @@ Panel {
     property bool selected: false
     property bool notifyOn: true
     readonly property bool isLan: nodeId === "__lan__"
-    readonly property bool hot: root.rttHot(rttRow)
     signal activated()
     signal notifyClicked()
 
     width: Style.space(108)
     height: root.mapCardH
     radius: Style.space(14)
+    // One signal: status drives fill and rim. Role (router / reverse proxy) is the subline, not a second colour.
     color: {
-      // Fill = soft status wash inside the card
       if (cardMa.containsMouse) return Qt.alpha(root.statusColor(status), 0.22)
-      if (hot) return Qt.alpha(root.urgent, 0.20)
-      if (status === "up") return Qt.alpha(root.themeGreen, 0.20)
-      if (status === "degraded") return Qt.alpha(root.themeYellow, 0.22)
-      if (status === "down") return Qt.alpha(root.statusColor("down"), 0.24)
-      if (kind === "router" || kind === "hub") return Qt.alpha(Color.accent, 0.14)
-      if (kind === "external") return Qt.alpha(Color.accent, 0.10)
+      if (status === "up") return Qt.alpha(root.themeGreen, 0.16)
+      if (status === "degraded") return Qt.alpha(root.themeYellow, 0.18)
+      if (status === "down") return Qt.alpha(root.statusColor("down"), 0.20)
       return root.card
     }
-    border.width: selected || status === "down" || kind === "hub" || kind === "router" ? 2 : 2
+    border.width: selected || status === "down" ? 2 : 1
     border.color: {
-      // Border = hard rim — same hue, much more opaque so status reads at a glance
-      if ((kind === "hub" || kind === "router") && status !== "down")
-        return Qt.alpha(Color.accent, selected ? 1.0 : 0.92)
-      if (selected)
-        return Qt.alpha(root.statusColor(status), 1.0)
-      if (status === "down")
-        return Qt.alpha(root.statusColor(status), 1.0)
-      if (status === "up")
-        return Qt.alpha(root.themeGreen, 0.92)
-      if (status === "degraded")
-        return Qt.alpha(root.themeYellow, 0.92)
-      if (kind === "external")
-        return Qt.alpha(Color.accent, 0.75)
+      if (selected || status === "up" || status === "degraded" || status === "down")
+        return Qt.alpha(root.statusColor(status), selected || status === "down" ? 1.0 : 0.88)
       return root.borderIdle
     }
 
@@ -1781,7 +1789,7 @@ Panel {
       Text {
         width: parent.width
         text: mapBox.metric !== "" ? mapBox.metric : root.rttText(rttRow)
-        color: hot ? root.urgent : ((mapBox.metric === "—" || mapBox.metric === "") ? root.inkDim : root.dim)
+        color: (mapBox.metric === "—" || mapBox.metric === "") ? root.inkDim : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         elide: Text.ElideRight
@@ -2029,7 +2037,7 @@ Panel {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "2⁄3 INTERNAL · router · 1⁄3 EXTERNAL · ISSUES hides healthy services"
+                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · 1⁄3 EXTERNAL · ISSUES hides healthy services"
                         : "Machines → Caddy → services · leftover LAN clustered")
                     : "Dash · colour lights · toggle the noise"
                 color: root.inkDim
@@ -2305,10 +2313,14 @@ Panel {
                     y: box.y + box.h / 2
                   }
                 }
+                var hubId = root.mapHubId()
+                var hubPos = hubId ? pos[hubId] : null
                 var calm = Qt.alpha(root.ink, 0.35)
-                var hot = Qt.alpha(root.urgent, 0.6)
                 var wan = Qt.alpha(Color.accent, 0.65)
                 var lan = Qt.alpha(root.themeGreen, 0.55)
+                var barMidX = root.mapHasExternal
+                    ? (root.mapSplitX + root.mapBarWidth / 2)
+                    : 0
                 for (i = 0; i < root.mapEdges.length; i++) {
                   var e = root.mapEdges[i]
                   var a = pos[String(e.from || "")]
@@ -2319,18 +2331,25 @@ Panel {
                   var period = root.edgePulseSec(rowA, rowB)
                   var kind = String(e.kind || "")
                   var isWan = kind === "wan"
-                  var isLan = kind === "lan"
-                  ctx.strokeStyle = isWan ? wan : (isLan ? lan : ((root.rttHot(rowA) || root.rttHot(rowB)) ? hot : calm))
+                  var isLan = kind === "lan" || kind === "service"
+                  ctx.strokeStyle = isWan ? wan : (isLan ? lan : calm)
                   ctx.lineWidth = isWan || isLan ? 1.75 : 1.5
                   ctx.setLineDash(isWan ? [3, 7] : [6, 10])
                   ctx.lineDashOffset = -root.edgePhase * (40 / period)
                   ctx.beginPath()
-                  // Bend through the router column so traffic visibly crosses the bar.
-                  var midX = root.mapHasExternal
-                      ? (root.mapSplitX + root.mapBarWidth / 2)
-                      : ((a.x + b.x) / 2)
                   ctx.moveTo(a.x, a.y)
-                  ctx.bezierCurveTo(midX, a.y, midX, b.y, b.x, b.y)
+                  if (isWan && barMidX) {
+                    // Cloud traffic crosses the router column.
+                    ctx.bezierCurveTo(barMidX, a.y, barMidX, b.y, b.x, b.y)
+                  } else if (hubPos && String(e.from) !== hubId && String(e.to) !== hubId) {
+                    // Rare non-hub edges: nudge toward the reverse proxy.
+                    ctx.bezierCurveTo(hubPos.x, a.y, hubPos.x, b.y, b.x, b.y)
+                  } else {
+                    // Machine↔proxy / proxy↔service: gentle arc, endpoints already include hub.
+                    var mx = (a.x + b.x) / 2
+                    var my = (a.y + b.y) / 2
+                    ctx.quadraticCurveTo(mx, my - Style.space(12), b.x, b.y)
+                  }
                   ctx.stroke()
                 }
               }

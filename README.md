@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.3.5-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.6-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Config: `~/.config/omarchy/plugins/homelab-mesh/`  
@@ -211,7 +211,9 @@ python3 history_cli.py sparkline --id <node>
 |------------|---------|
 | **Castle-socket** | Bar + header mark; alarms when glance has downs |
 | **● / ○** | Filled = up/down known; hollow = unknown / probing |
-| **Green / yellow / red** | Theme `colors.toml` status (up / degraded / down) |
+| **Green / yellow / red** | Theme status on **both** fill and border (up / degraded / down) — no separate “hot RTT” wash |
+| **reverse proxy** subline | Caddy (or first proxy group) — LAN service edges hub here |
+| **router** subline | `role: router` / `mapBand: router` machine (e.g. redUltra) — WAN bar + rates |
 | **LIVE · …** pill | Aggregate health + `as_of` |
 | **Map / List** | View tabs |
 | **LAN N / PROXIES** | Leftover bands |
