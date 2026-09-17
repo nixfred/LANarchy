@@ -206,6 +206,19 @@ def normalize_inventory(data: dict) -> dict:
     else:
         # v1 three-arrays
         nodes = [normalize_node(n) for n in v1_to_nodes(data)]
+    # Two nodes with one id is always a defect: every lookup, probe result and
+    # history series is keyed by it, so the duplicate silently shadows the first.
+    seen: dict[str, int] = {}
+    deduped: list[dict] = []
+    for node in nodes:
+        nid = str(node.get("id") or "")
+        if nid and nid in seen:
+            deduped[seen[nid]] = node
+            continue
+        if nid:
+            seen[nid] = len(deduped)
+        deduped.append(node)
+    nodes = deduped
     out: dict[str, Any] = {"schemaVersion": SCHEMA_VERSION, "nodes": nodes}
     settings = data.get("settings")
     if isinstance(settings, dict) and settings:
@@ -213,7 +226,66 @@ def normalize_inventory(data: dict) -> dict:
     edges = data.get("edges")
     if isinstance(edges, list) and edges:
         out["edges"] = [e for e in edges if isinstance(e, dict)]
+    ignored = data.get("ignored")
+    if isinstance(ignored, list) and ignored:
+        out["ignored"] = [normalize_ignored(i) for i in ignored if isinstance(i, dict)]
+    names = data.get("names")
+    if isinstance(names, list) and names:
+        out["names"] = [normalize_ignored(n) for n in names if isinstance(n, dict)]
     return out
+
+
+def name_overrides(inv: dict) -> dict[str, str]:
+    """Your name for a box wins over whatever the network called it.
+
+    Keyed the same way a dismissal is, by hardware first, so the name survives a
+    DHCP move.
+    """
+    rows = inv.get("names") if isinstance(inv, dict) else None
+    if not isinstance(rows, list):
+        return {}
+    out: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = ignore_key(row.get("mac"), row.get("ip"))
+        label = _as_str(row.get("label"))
+        if key and label:
+            out[key] = label
+    return out
+
+
+def normalize_ignored(entry: dict) -> dict:
+    """One dismissal. Keyed by MAC first: an address moves, hardware does not."""
+    out: dict[str, Any] = {}
+    for key in ("mac", "ip", "label", "ts"):
+        val = _as_str(entry.get(key))
+        if val:
+            out[key] = val.lower() if key == "mac" else val
+    return out
+
+
+def ignore_key(mac: object, ip: object) -> str | None:
+    """The identity a dismissal is remembered by."""
+    m = _as_str(mac)
+    if m:
+        return "mac:" + m.lower()
+    i = _as_str(ip)
+    return ("ip:" + i) if i else None
+
+
+def ignored_keys(inv: dict) -> set[str]:
+    rows = inv.get("ignored") if isinstance(inv, dict) else None
+    if not isinstance(rows, list):
+        return set()
+    keys = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = ignore_key(row.get("mac"), row.get("ip"))
+        if key:
+            keys.add(key)
+    return keys
 
 
 def load_inventory(path: Path | None = None) -> dict:
@@ -258,12 +330,20 @@ def save_inventory(inv: dict, path: Path | None = None) -> Path:
             base["settings"] = inv["settings"]
         if isinstance(inv.get("edges"), list):
             base["edges"] = inv["edges"]
+        if isinstance(inv.get("ignored"), list):
+            base["ignored"] = inv["ignored"]
+        if isinstance(inv.get("names"), list):
+            base["names"] = inv["names"]
     normalized = normalize_inventory(base)
     payload: dict[str, Any] = {"schemaVersion": SCHEMA_VERSION, "nodes": normalized["nodes"]}
     if normalized.get("settings"):
         payload["settings"] = normalized["settings"]
     if normalized.get("edges"):
         payload["edges"] = normalized["edges"]
+    if normalized.get("ignored"):
+        payload["ignored"] = normalized["ignored"]
+    if normalized.get("names"):
+        payload["names"] = normalized["names"]
     return atomic_write_json(p, payload)
 
 

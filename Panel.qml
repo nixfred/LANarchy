@@ -67,8 +67,17 @@ Panel {
   property var unifi: ({})
   property var discover: []
   property var events: []
+  property var devices: []
+  property var gateway: null
+  property var wan: null
+  property bool devicesOpen: false
+  property bool renaming: false
+  property var invNames: []
+  property bool ignoredOpen: false
+  property int ignoredCount: 0
   property var flaps: ({})
   property var invSettings: ({})
+  property var invIgnored: []
   property string actionStatus: ""
   property bool findHostsBusy: false
   property string findHostsHint: ""
@@ -322,44 +331,58 @@ Panel {
   }
 
   function rebuildMapEdges() {
-    var hub = root.mapHubId()
-    var router = root.routerMachine()
-    var routerId = router ? String(router.id || "") : ""
+    // The one structure that is true on every LAN: a machine reaches the
+    // internet through the default gateway. Before this, with no reverse proxy
+    // configured the hub fell back to "the first machine in the list", so the
+    // map asserted that every box routed through whichever machine happened to
+    // be first, and drew measured bytes along those invented links.
     var edges = []
     var i, mid, gid
-    if (!hub) {
+    var gw = root.gateway ? "__gateway__" : ""
+    var hub = root.mapHubId()
+    var anchor = gw || hub
+    if (!anchor) {
       root.mapEdges = []
       return
     }
+
     for (i = 0; i < root.machines.length; i++) {
       mid = String(root.machines[i].id || "")
-      if (!mid || mid === hub || mid === routerId) continue
+      // Never draw a node connected to itself.
+      if (!mid || mid === anchor) continue
       if (!root.mapRowVisible(root.machines[i], "machine")) continue
-      edges.push({ from: mid, to: hub, kind: "lan" })
+      edges.push({ from: mid, to: anchor, kind: "lan" })
     }
-    // Router feeds the reverse proxy (L3 gateway ↔ L7 front door).
-    if (routerId && routerId !== hub)
-      edges.push({ from: routerId, to: hub, kind: "lan" })
+
+    // A reverse proxy is a service behind the gateway, not the gateway itself.
+    if (gw && hub && hub !== gw)
+      edges.push({ from: hub, to: gw, kind: "lan" })
+
     for (i = 0; i < root.groups.length; i++) {
       gid = String(root.groups[i].id || "")
-      if (gid === hub) continue
+      if (gid === anchor || gid === hub) continue
       if (!root.mapRowVisible(root.groups[i], String(root.groups[i].zone || "") === "external" ? "external" : "service"))
         continue
-      var kind = String(root.groups[i].zone || "") === "external" ? "wan" : "service"
-      // WAN leaves via the router when we have one; otherwise hub → cloud.
-      if (kind === "wan" && routerId)
-        edges.push({ from: routerId, to: gid, kind: kind })
-      else
-        edges.push({ from: hub, to: gid, kind: kind })
+      var external = String(root.groups[i].zone || "") === "external"
+      edges.push({ from: hub || anchor, to: gid, kind: external ? "wan" : "service" })
     }
+
     if (root.lanBucketRows().length)
-      edges.push({ from: hub, to: "__lan__", kind: "lan" })
+      edges.push({ from: anchor, to: "__lan__", kind: "lan" })
+
+    // The internet, beyond the gateway. This is the only edge whose traffic we
+    // can honestly attribute: everything leaving these hosts crosses it.
+    if (gw && root.wan)
+      edges.push({ from: gw, to: "__wan__", kind: "wan" })
+
     root.mapEdges = edges
   }
 
   function glanceRowById(id) {
     var sid = String(id || "")
     if (sid === "__lan__") return root.lanClusterRow()
+    if (sid === "__gateway__") return root.gateway
+    if (sid === "__wan__") return root.wan
     var bands = [root.machines, root.groups, root.lan, root.proxies, root.quietLan, root.quietProxies]
     var b, i, row
     for (b = 0; b < bands.length; b++) {
@@ -930,10 +953,22 @@ Panel {
 
   function osSubline(row) {
     var os = row && row.os ? row.os : null
-    if (!os) return "machine"
-    var label = String(os.label || "machine")
-    if (String(os.confidence || "") === "guess") return label + "?"
-    return label
+    var label = os ? String(os.label || "machine") : "machine"
+    if (os && String(os.confidence || "") === "guess") label += "?"
+    var link = root.linkKindText(row)
+    return link ? (label + " · " + link) : label
+  }
+
+  // Wired or wireless, stated only when it is actually known. Link details come
+  // from the telemetry hop, so a box we cannot reach says nothing rather than
+  // guessing. UniFi reports this for every client once a key is configured.
+  function linkKindText(row) {
+    var link = row && row.link ? row.link : null
+    if (!link) return ""
+    var kind = String(link.kind || "")
+    if (kind === "wifi") return "wifi"
+    if (kind === "eth") return "wired"
+    return ""
   }
 
   function osDetail(row) {
@@ -946,6 +981,35 @@ Panel {
     return out
   }
 
+  function gatewaySubline() {
+    if (!root.gateway) return "gateway"
+    var model = String(root.gateway.model || "")
+    return model ? ("gateway · " + model) : "gateway"
+  }
+
+  function gatewayMetric() {
+    if (!root.gateway) return ""
+    var parts = []
+    if (root.gateway.ip) parts.push(String(root.gateway.ip))
+    var t = root.rttText(root.gateway)
+    if (t !== "—") parts.push(t)
+    return parts.join(" · ")
+  }
+
+  function wanMetric() {
+    if (!root.wan) return ""
+    var parts = []
+    var t = root.rttText(root.wan)
+    if (t !== "—") parts.push(t)
+    var r = root.wan.rates
+    if (r && r.measured) {
+      var d = root.fmtRate(r.rx_bps)
+      var u = root.fmtRate(r.tx_bps)
+      if (d || u) parts.push("↓" + (d || "0") + " ↑" + (u || "0"))
+    }
+    return parts.join(" · ")
+  }
+
   function recalcMapLayout() {
     if (!mapArea || mapArea.width <= 0) return
     var w = mapArea.width
@@ -956,7 +1020,8 @@ Panel {
     var externals = root.externalGroups()
     var router = root.routerMachine()
     var hub = root.hubGroup()
-    root.mapHasExternal = externals.length > 0
+    // The internet is always out there, so the external rail always exists.
+    root.mapHasExternal = externals.length > 0 || root.wan !== null
 
     // INTERNAL (~2/3) | ROUTER BAR | EXTERNAL (~1/3) — classic LAN-heavy letterbox
     var barW = root.mapHasExternal ? Style.space(140) : 0
@@ -1013,7 +1078,11 @@ Panel {
       var rw = Math.min(Style.space(118), barW - Style.space(14))
       var rh = Style.space(124)
       var ry = Math.max(Style.space(56), (h - rh) / 2 - Style.space(12))
-      if (router) {
+      if (root.gateway) {
+        // The real next hop, not a machine standing in for one.
+        place(root.gateway, root.gatewaySubline(), barX + (barW - rw) / 2, ry, rw, rh,
+              "router", root.gatewayMetric(), [])
+      } else if (router) {
         place(router, "router", barX + (barW - rw) / 2, ry, rw, rh, "router",
               root.routerMetric(router), [])
       } else if (hub) {
@@ -1040,11 +1109,18 @@ Panel {
             clusterW, Style.space(72), "lan", cluster.metric, cluster.lights)
     }
 
+    if (root.wan) {
+      var wanW = Math.min(Style.space(130), Math.max(Style.space(100), rightW - Style.space(16)))
+      var wanH = Style.space(96)
+      place(root.wan, "internet", barX + barW + (rightW - wanW) / 2, Style.space(30),
+            wanW, wanH, "cloud", root.wanMetric(), [])
+    }
+
     if (externals.length) {
       var railX = barX + barW
       var cw = Math.min(Style.space(120), Math.max(Style.space(96), rightW - Style.space(16)))
       var gapY = Style.space(10)
-      var startY = Style.space(36)
+      var startY = Style.space(36) + (root.wan ? Style.space(116) : 0)
       var i, row, y
       for (i = 0; i < externals.length; i++) {
         row = externals[i]
@@ -1120,6 +1196,11 @@ Panel {
     if (!data.as_of && root.asOf) return
     root.asOf = String(data.as_of || "")
     root.machines = data.machines instanceof Array ? data.machines : []
+    // The network fills the map. A discovered box you have never curated still
+    // gets a card; the inventory only records the overrides you made.
+    if (data.auto instanceof Array && data.auto.length > 0) {
+      root.machines = root.machines.concat(data.auto)
+    }
     root.lan = data.lan instanceof Array ? data.lan : []
     root.proxies = data.proxies instanceof Array ? data.proxies : []
     root.groups = data.groups instanceof Array ? data.groups : []
@@ -1128,6 +1209,10 @@ Panel {
     root.lanMeta = data.lan_meta && typeof data.lan_meta === "object" ? data.lan_meta : {}
     root.unifi = data.unifi && typeof data.unifi === "object" ? data.unifi : {}
     root.discover = data.discover instanceof Array ? data.discover : []
+    root.devices = data.devices instanceof Array ? data.devices : []
+    root.gateway = data.gateway && typeof data.gateway === "object" ? data.gateway : null
+    root.wan = data.wan && typeof data.wan === "object" ? data.wan : null
+    root.ignoredCount = Number(data.ignored_count) || 0
     root.events = data.events instanceof Array ? data.events : []
     root.flaps = data.flaps && typeof data.flaps === "object" ? data.flaps : ({})
     root.error = ""
@@ -1428,6 +1513,8 @@ Panel {
     root.nodes = data.nodes
     root.mapEdges = data.edges instanceof Array ? data.edges : []
     // Drop retired mapQuietUp if still on disk from older builds.
+    root.invIgnored = data.ignored instanceof Array ? data.ignored : []
+    root.invNames = data.names instanceof Array ? data.names : []
     var rawSettings = data.settings && typeof data.settings === "object" ? data.settings : ({})
     var cleaned = ({})
     var sk
@@ -1609,6 +1696,7 @@ Panel {
     for (var i = 0; i < root.discover.length; i++) {
       var c = root.discover[i]
       if (onlyMachines && String(c.type || "") !== "machine") continue
+      if (root.inventoryHasDevice(c)) continue
       if (root.discoveredNode(c)) n++
     }
     return n
@@ -1626,6 +1714,7 @@ Panel {
     for (i = 0; i < root.discover.length; i++) {
       var c = root.discover[i]
       if (onlyMachines && String(c.type || "") !== "machine") continue
+      if (root.inventoryHasDevice(c)) continue
       var node = root.discoveredNode(c)
       if (!node) continue
       var base = String(node.id)
@@ -1653,7 +1742,125 @@ Panel {
     root.writeNodes(next)
   }
 
+  // Removing a device is an override, not a deletion: it is remembered against
+  // the hardware, so it stays gone when its address changes, and it can be
+  // brought back from "show ignored".
+  // Your name for a box, kept against the hardware so it survives a DHCP move.
+  // Works for a discovered machine you never curated, which otherwise had no
+  // way to be called anything but its address.
+  function renameRow(row, newLabel) {
+    var label = String(newLabel || "").trim()
+    if (!row || !label) return
+    var sid = String(row.id || "")
+
+    // A curated node owns its own label; edit it in place.
+    if (sid.indexOf("auto:") !== 0) {
+      var next = []
+      for (var i = 0; i < root.nodes.length; i++) {
+        var n = root.nodes[i]
+        if (String(n.id) === sid) {
+          var copy = ({})
+          for (var k in n) copy[k] = n[k]
+          copy.label = label
+          next.push(copy)
+        } else next.push(n)
+      }
+      root.renaming = false
+      root.writeNodes(next)
+      return
+    }
+
+    var entry = ({})
+    if (row.mac) entry.mac = String(row.mac).toLowerCase()
+    else if (row.ip) entry.ip = String(row.ip)
+    else return
+    entry.label = label
+
+    var names = (root.invNames instanceof Array ? root.invNames.slice() : [])
+    var replaced = false
+    for (var j = 0; j < names.length; j++) {
+      var m = names[j]
+      if ((entry.mac && String(m.mac || "").toLowerCase() === entry.mac)
+          || (entry.ip && !entry.mac && String(m.ip || "") === entry.ip)) {
+        names[j] = entry
+        replaced = true
+        break
+      }
+    }
+    if (!replaced) names.push(entry)
+    root.invNames = names
+    root.renaming = false
+    root.writeInventoryWithOverrides(root.invIgnored, names)
+  }
+
+  function writeInventoryWithOverrides(ignored, names) {
+    if (!root.inventoryReady || root.inventoryLoading) return
+    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return
+    var payload = root.inventoryWritePayload(root.nodes, root.invSettings)
+    payload.ignored = ignored || []
+    payload.names = names || []
+    root.runInventoryWrite(payload)
+  }
+
+  function ignoreDevice(row) {
+    if (!row) return
+    var entry = ({})
+    if (row.mac) entry.mac = String(row.mac).toLowerCase()
+    else if (row.ip) entry.ip = String(row.ip)
+    else return
+    if (row.label) entry.label = String(row.label)
+    entry.ts = new Date().toISOString()
+
+    var next = (root.invIgnored instanceof Array ? root.invIgnored.slice() : [])
+    for (var i = 0; i < next.length; i++) {
+      var k = next[i]
+      if ((entry.mac && String(k.mac || "").toLowerCase() === entry.mac)
+          || (entry.ip && !entry.mac && String(k.ip || "") === entry.ip)) return
+    }
+    next.push(entry)
+    root.invIgnored = next
+    root.writeInventoryWithOverrides(next, root.invNames)
+  }
+
+  function restoreIgnored(index) {
+    if (!(root.invIgnored instanceof Array)) return
+    var next = []
+    for (var i = 0; i < root.invIgnored.length; i++)
+      if (i !== index) next.push(root.invIgnored[i])
+    root.invIgnored = next
+    root.writeInventoryWithOverrides(next, root.invNames)
+  }
+
+  function restoreAllIgnored() {
+    root.invIgnored = []
+    root.writeInventoryWithOverrides([], root.invNames)
+  }
+
+  // Identity, not id. Two adds of one box produced `nano` and `nano-245`,
+  // because the only check was whether the slug collided.
+  function inventoryHasDevice(c) {
+    if (!c) return false
+    var mac = String(c.mac || "").toLowerCase()
+    var ip = String(c.ip || "")
+    var host = String(c.host || "").toLowerCase().replace(/\.(local|lan)$/, "")
+    for (var i = 0; i < root.nodes.length; i++) {
+      var n = root.nodes[i]
+      if (mac && String(n.mac || "").toLowerCase() === mac) return true
+      if (ip && String(n.ip || "") === ip) return true
+      if (host) {
+        var ndns = String(n.dns || "").toLowerCase().replace(/\.(local|lan)$/, "")
+        if (ndns && ndns === host) return true
+        if (String(n.label || "").toLowerCase() === host) return true
+      }
+    }
+    return false
+  }
+
   function addDiscovered(c) {
+    if (root.inventoryHasDevice(c)) {
+      root.inventoryError = "Already in your inventory"
+      return
+    }
     var node = root.discoveredNode(c)
     if (!node) {
       root.inventoryError = "Nothing to add"
@@ -2564,7 +2771,7 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       // Block Esc/keys while form fields focused — TextField handles input.
-      enabled: !(root.view === "form" && root.formFieldFocused)
+      enabled: !(root.view === "form" && root.formFieldFocused) && !root.renaming
       onCloseRequested: root.navigateBack()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
@@ -3274,9 +3481,43 @@ Panel {
                   return line
                 }
               }
+              // Rename in place. A discovered box had no way to be called
+              // anything but its address before this.
               Row {
-                visible: root.mapSelectedId !== "" && root.mapSelectedId !== "__lan__"
+                visible: root.renaming && root.mapSelectedId !== ""
                 spacing: Style.space(8)
+                width: parent.width
+                TextField {
+                  id: renameField
+                  width: Style.space(200)
+                  placeholderText: "name this box"
+                  onAccepted: root.renameRow(root.glanceRowById(root.mapSelectedId), text)
+                }
+                SegBtn {
+                  label: "Save"
+                  active: true
+                  onTapped: root.renameRow(root.glanceRowById(root.mapSelectedId), renameField.text)
+                }
+                SegBtn {
+                  label: "Cancel"
+                  active: false
+                  onTapped: root.renaming = false
+                }
+              }
+
+              Row {
+                visible: !root.renaming && root.mapSelectedId !== "" && root.mapSelectedId !== "__lan__"
+                spacing: Style.space(8)
+                SegBtn {
+                  label: "Rename"
+                  active: false
+                  onTapped: {
+                    var row = root.glanceRowById(root.mapSelectedId)
+                    renameField.text = row ? String(row.label || "") : ""
+                    root.renaming = true
+                    renameField.forceActiveFocus()
+                  }
+                }
                 SegBtn {
                   label: root.notifyEnabledForNodeId(root.mapSelectedId) ? "Notify on" : "Notify off"
                   active: root.notifyEnabledForNodeId(root.mapSelectedId)
@@ -3400,6 +3641,141 @@ Panel {
                   metric: root.serviceMetric(modelData)
                   lights: root.serviceLights(modelData)
                   hoverTip: root.listRowTooltip(modelData)
+                }
+              }
+
+              // Everything else on the network. Speakers, TVs and phones are
+              // real and are listed, but they are not topology, so they live in
+              // a bounded drawer rather than on the map.
+              Column {
+                width: parent.width
+                spacing: Style.space(4)
+                visible: root.devices.length > 0 || root.ignoredCount > 0
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  SegBtn {
+                    label: (root.devicesOpen ? "▾ " : "▸ ") + "Devices (" + root.devices.length + ")"
+                    active: root.devicesOpen
+                    onTapped: root.devicesOpen = !root.devicesOpen
+                  }
+                  SegBtn {
+                    visible: root.ignoredCount > 0
+                    label: (root.ignoredOpen ? "▾ " : "▸ ") + "Ignored (" + root.ignoredCount + ")"
+                    active: root.ignoredOpen
+                    onTapped: root.ignoredOpen = !root.ignoredOpen
+                  }
+                }
+
+                // Bounded, scrolls in place: the page itself never scrolls.
+                Flickable {
+                  width: parent.width
+                  visible: root.devicesOpen
+                  height: Math.min(Style.space(150), deviceCol.implicitHeight)
+                  clip: true
+                  boundsBehavior: Flickable.StopAtBounds
+                  contentWidth: width
+                  contentHeight: deviceCol.implicitHeight
+                  interactive: contentHeight > height
+                  ScrollBar.vertical: ScrollBar { width: 6 }
+
+                  Column {
+                    id: deviceCol
+                    width: parent.width
+                    spacing: Style.space(2)
+                    Repeater {
+                      model: root.devices
+                      delegate: Row {
+                        id: deviceRow
+                        required property var modelData
+                        width: deviceCol.width
+                        spacing: Style.space(6)
+                        Text {
+                          width: Style.space(120)
+                          text: String(deviceRow.modelData.label || "device")
+                          color: root.foreground
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          elide: Text.ElideRight
+                        }
+                        Text {
+                          width: Style.space(80)
+                          text: String(deviceRow.modelData.kind || "")
+                          color: root.muted
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          elide: Text.ElideRight
+                        }
+                        Text {
+                          width: Style.space(90)
+                          text: String(deviceRow.modelData.ip || "")
+                          color: root.inkDim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+                        Text {
+                          text: "remove"
+                          color: root.muted
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.ignoreDevice(deviceRow.modelData)
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
+                Flickable {
+                  width: parent.width
+                  visible: root.ignoredOpen
+                  height: Math.min(Style.space(110), ignoredCol.implicitHeight)
+                  clip: true
+                  boundsBehavior: Flickable.StopAtBounds
+                  contentWidth: width
+                  contentHeight: ignoredCol.implicitHeight
+                  interactive: contentHeight > height
+                  ScrollBar.vertical: ScrollBar { width: 6 }
+
+                  Column {
+                    id: ignoredCol
+                    width: parent.width
+                    spacing: Style.space(2)
+                    Repeater {
+                      model: root.invIgnored
+                      delegate: Row {
+                        id: ignoredRow
+                        required property var modelData
+                        required property int index
+                        width: ignoredCol.width
+                        spacing: Style.space(6)
+                        Text {
+                          width: Style.space(160)
+                          text: String(ignoredRow.modelData.label || ignoredRow.modelData.mac
+                                       || ignoredRow.modelData.ip || "device")
+                          color: root.muted
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          elide: Text.ElideRight
+                        }
+                        Text {
+                          text: "restore"
+                          color: root.foreground
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.restoreIgnored(ignoredRow.index)
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
 

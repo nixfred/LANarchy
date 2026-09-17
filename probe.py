@@ -27,7 +27,14 @@ from history_lib import (
     set_node_meta,
 )
 from groups_lib import attach_status, group_nodes, leftover_rows
-from inventory_lib import load_inventory, probe_fallback_host, probe_target
+from inventory_lib import (
+    ignore_key,
+    ignored_keys,
+    load_inventory,
+    name_overrides,
+    probe_fallback_host,
+    probe_target,
+)
 from notify_lib import process_probe_glance
 from os_lib import identify
 from plugin_paths import (
@@ -45,6 +52,7 @@ from telemetry_lib import (
     http_timing,
     link_grade,
     neighbors,
+    default_gateway,
     primary_link,
     rates_from,
     resolve_ipv4,
@@ -55,6 +63,8 @@ from telemetry_lib import (
 HERE = Path(__file__).resolve().parent
 PING_TIMEOUT_S = 1.5
 HTTP_TIMEOUT_S = 2.0
+# A stable, unauthenticated anycast address: "is the internet reachable".
+WAN_PROBE_HOST = "1.1.1.1"
 
 
 def inventory_file() -> Path:
@@ -383,6 +393,87 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             found = discover_f.result() if discover_f is not None else []
         except Exception:
             found = []
+    # The real next hop, and the internet beyond it. Without these the map has no
+    # true structure to draw and invents one.
+    gw = default_gateway()
+    gateway = None
+    wan = None
+    if gw and gw.get("ip"):
+        gw_status, gw_rtt, gw_ttl = ping_host(gw["ip"])
+        gateway = {
+            "id": "__gateway__",
+            "label": "Gateway",
+            "ip": gw["ip"],
+            "mac": gw.get("mac"),
+            "iface": gw.get("iface"),
+            "status": gw_status,
+            "rtt_ms": gw_rtt,
+        }
+        if unifi.get("name"):
+            gateway["label"] = str(unifi["name"])
+            gateway["model"] = str(unifi.get("model") or "")
+        # The internet is reachable or it is not; that is one honest check.
+        wan_status, wan_rtt, _ = ping_host(WAN_PROBE_HOST)
+        wan = {
+            "id": "__wan__",
+            "label": "Internet",
+            "status": wan_status,
+            "rtt_ms": wan_rtt,
+            "via": gw["ip"],
+        }
+        totals = {"rx_bps": 0.0, "tx_bps": 0.0, "measured": False}
+        for row in machines:
+            rates = row.get("rates")
+            if not isinstance(rates, dict):
+                continue
+            totals["rx_bps"] += float(rates.get("rx_bps") or 0)
+            totals["tx_bps"] += float(rates.get("tx_bps") or 0)
+            totals["measured"] = True
+        wan["rates"] = totals
+
+    # The network populates the view; the inventory only records your overrides.
+    # A discovered box you have not curated still shows up, and a device you
+    # dismissed stays dismissed because the dismissal is keyed by hardware.
+    candidates = merge_discover(found, unifi.get("discover") or [], known=known_targets(nodes, hist))
+    dismissed = ignored_keys(inv)
+    renamed = name_overrides(inv)
+    auto_rows: list[dict] = []
+    device_rows: list[dict] = []
+    for cand in candidates:
+        key = ignore_key(cand.get("mac"), cand.get("ip"))
+        if key and key in dismissed:
+            continue
+        own_name = renamed.get(key or "")
+        row = {
+            "id": "auto:" + (key or str(cand.get("ip") or cand.get("label") or "")),
+            "label": own_name or str(cand.get("label") or cand.get("ip") or "device"),
+            "renamed": bool(own_name),
+            "host": str(cand.get("host") or cand.get("ip") or ""),
+            "ip": cand.get("ip"),
+            "mac": cand.get("mac"),
+            "auto": True,
+            "source": cand.get("source"),
+            "kind": cand.get("deviceKind") or "",
+            "identifier": cand.get("identifier") or "",
+            "randomizedMac": bool(cand.get("randomizedMac")),
+            "services": cand.get("services") or [],
+        }
+        if str(cand.get("type") or "") == "machine":
+            # A box you can log into earns a place on the map without being
+            # curated first.
+            status, rtt, ttl = ping_host(row["host"] or str(cand.get("ip") or ""))
+            row.update(status=status, rtt_ms=rtt)
+            if ttl is not None:
+                row["ttl"] = ttl
+            row["os"] = identify(ttl=ttl, services=row["services"])
+            auto_rows.append(row)
+        else:
+            # Speakers, TVs and phones are real and are listed, but they do not
+            # belong on a topology map, and probing 20 of them every cycle is
+            # cost without insight.
+            row["status"] = "seen"
+            device_rows.append(row)
+
     by_id: dict[str, dict] = {}
     for row in machines + host_rows + proxies:
         by_id[str(row.get("id") or "")] = row
@@ -397,7 +488,12 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         "quiet_proxies": quiet_proxies,
         "lan_meta": meta,
         "unifi": unifi,
-        "discover": merge_discover(found, unifi.get("discover") or [], known=known_targets(nodes, hist)),
+        "discover": candidates,
+        "auto": auto_rows,
+        "devices": device_rows,
+        "ignored_count": len(dismissed),
+        "gateway": gateway,
+        "wan": wan,
         "events": recent_events(hist, 6),
         "flaps": flap_counts(hist, 1.0),
     }

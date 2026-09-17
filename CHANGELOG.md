@@ -3,6 +3,32 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.8.0 - 2026-09-17
+
+- **The network fills the map; the inventory only records your overrides.** A
+  discovered box you never curated now gets a card. Previously you had to add
+  every machine by hand before it existed to the plugin, so a lab of 30 devices
+  showed 4
+- Speakers, TVs and phones are listed in a bounded **Devices** drawer rather than
+  drawn as topology. **Remove** dismisses one, keyed by MAC so it stays dismissed
+  when its address changes, and **Ignored (N)** restores it
+- **Rename any box, including a discovered one.** The name is stored against the
+  hardware, so it survives a DHCP move. A curated node still edits in place
+- **The map draws the real topology.** With no reverse proxy configured, the hub
+  fell back to "the first machine in the list", so the map asserted that every
+  box routed through whichever machine happened to be first, including a
+  machine wired to itself. It now uses the actual default gateway
+- **An Internet node beyond the gateway**, with reachability and the measured
+  aggregate crossing it. That edge is the one whose traffic can honestly be
+  attributed: everything leaving these hosts crosses it
+- Cards state **wired** or **wifi** beside the platform, and say nothing when the
+  link is genuinely unknown
+- Adding a device already in the inventory is refused by identity (MAC, address,
+  dns name) rather than by slug collision. That is what allowed one box to be
+  added twice as `nano` and `nano-245`
+- Duplicate node ids are collapsed on load. Two nodes with one id silently shadow
+  each other in every lookup, probe result and history series
+
 ## 0.7.0 - 2026-09-17
 
 - **Cards lead with a name, not an identifier.** `RINCON_5CAAFD26F5E201400@Living Room`

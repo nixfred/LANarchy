@@ -49,6 +49,33 @@ def _run(args: list[str], timeout: float, stdin: str | None = None) -> str:
         return ""
 
 
+def default_gateway() -> dict | None:
+    """The real next hop for this machine: {ip, mac, iface}.
+
+    Every box on a LAN reaches the internet through this address. Drawing a
+    topology without it means inventing one, which is what happens when the hub
+    falls back to "the first machine in the list".
+    """
+    out = _run(["ip", "-4", "route", "show", "default"], 2)
+    fields = (out or "").split()
+    try:
+        ip = fields[fields.index("via") + 1]
+    except (ValueError, IndexError):
+        return None
+    iface = ""
+    if "dev" in fields:
+        try:
+            iface = fields[fields.index("dev") + 1]
+        except IndexError:
+            iface = ""
+    mac = None
+    neigh = _run(["ip", "-4", "neigh", "show", ip], 2)
+    m = re.search(r"lladdr\s+((?:[0-9a-f]{2}:){5}[0-9a-f]{2})", neigh or "", re.I)
+    if m:
+        mac = m.group(1).lower()
+    return {"ip": ip, "mac": mac, "iface": iface}
+
+
 def local_addresses() -> set[str]:
     out: set[str] = set()
     try:

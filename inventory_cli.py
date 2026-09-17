@@ -24,6 +24,8 @@ def cmd_dump(path: Path) -> int:
     }
     if isinstance(inv.get("settings"), dict):
         out["settings"] = inv["settings"]
+    if isinstance(inv.get("ignored"), list):
+        out["ignored"] = inv["ignored"]
     json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
