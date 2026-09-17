@@ -6,8 +6,7 @@
       "type": "machine",
       "label": "This box",
       "dns": "localhost",
-      "ip": "127.0.0.1",
-      "telemetry": false
+      "ip": "127.0.0.1"
     },
     {
       "id": "caddy-health",

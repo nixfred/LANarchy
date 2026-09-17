@@ -3,6 +3,23 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.4.1 - 2026-09-17
+
+- **The map's traffic is measured, not decorative.** Packet count, speed and
+  direction all come from `rates` (rx_bps / tx_bps) read off the interface
+  counters. rx walks the route forwards, tx walks it back, and an edge with no
+  telemetry does not move at all: a still line means "not measured", not "idle"
+- Fixed the reason none of it could ever be real: the shipped starter set
+  `telemetry: false` on the local box, the one node whose counters need no SSH and
+  no credentials. With it enabled, `this-box` reports real throughput after two
+  probes, so a fresh install has live rates out of the box
+- Measured bytes still show when an endpoint's health check is down. A failing
+  Caddy health URL does not mean the wire is idle; it only dims the lane
+- Map cards carry a status halo: green sits still, amber breathes, red pulses, so
+  health is legible without reading the dot
+- The map canvas is now static geometry and repaints only when the layout,
+  statuses or rates change, instead of every 50 ms
+
 ## 0.4.0 - 2026-09-17
 
 - Bar icon carries a live readout beside the castle: down count, up/total, worst

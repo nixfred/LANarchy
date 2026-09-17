@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.4.0-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.1-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -98,7 +98,7 @@ Shipped `inventory.json` is a tiny localhost starter. Use **Setup → Search net
 | List / Map | Tabs or `l` / `m` |
 | Hide / demote selected card | Detail **Move to LAN** or `h` — card joins the LAN bucket (still probed) |
 | Restore to main map | List → **LAN** → **Show** (or **Show all on map**) |
-| Animate map traffic | **Flow** tab (map) or `a` — persists as `settings.mapAnimate` |
+| Animate map traffic | **Flow** tab (map) or `a` · persists as `settings.mapAnimate` |
 | Refresh | `r` |
 | Setup | `⚙ Setup` or `s` |
 | Map select / notify | Arrows · Enter toggles ALERT/MUTE |
@@ -130,6 +130,26 @@ on a busy LAN includes TVs and phones, so it is the deliberate option rather tha
 the recommended one.
 
 Without UniFi secrets, Search still runs mDNS + ARP with weaker names.
+
+---
+
+## What the map's motion means
+
+**Flow is measured throughput, not decoration.** Every packet on the map comes from
+`rates` (`rx_bps` / `tx_bps`) read off the interface counters:
+
+| You see | It means |
+|---------|----------|
+| Packets streaming | Real measured bytes. Count and speed both scale with the rate |
+| Two lanes, different shades | rx walks the route forwards, tx walks it back |
+| A still line | **No telemetry for either endpoint.** Not measured, as opposed to idle |
+| A dim lane | An endpoint's health check is down. The bytes are still real |
+
+Local telemetry (`/proc/net/dev`, sysfs) needs no SSH and no credentials, so the box
+running the panel always has live rates. Other machines need SSH with `BatchMode`;
+without it their edges stay still, which is the honest answer rather than a fake pace.
+
+Set `"telemetry": false` on a node to opt it out.
 
 ---
 

@@ -392,15 +392,52 @@ Panel {
     return isFinite(n) && n > 50
   }
 
-  // Traffic flow: width from real endpoint rates only; slow shared pulse.
-  function edgeFlowBps(rowA, rowB) {
-    function rate(row) {
-      if (!row || !row.rates) return 0
+  // Traffic flow, from measured throughput only.
+  //
+  // A node reports `rates` (rx_bps / tx_bps) when telemetry could read its
+  // counters: /proc/net/dev locally, or over SSH with BatchMode. Everything
+  // the map animates is derived from those numbers. When neither endpoint
+  // reported, the edge has NO measurement, and the map says so by not moving
+  // rather than by inventing a pace.
+  function edgeFlow(rowA, rowB) {
+    function rates(row) {
+      if (!row || !row.rates) return null
       var rx = Number(row.rates.rx_bps)
       var tx = Number(row.rates.tx_bps)
-      return Math.max(isFinite(rx) ? rx : 0, isFinite(tx) ? tx : 0)
+      if (!isFinite(rx) && !isFinite(tx)) return null
+      return { rx: isFinite(rx) ? Math.max(0, rx) : 0, tx: isFinite(tx) ? Math.max(0, tx) : 0 }
     }
-    return Math.max(rate(rowA), rate(rowB))
+    var a = rates(rowA)
+    var b = rates(rowB)
+    if (!a && !b) return { rx: 0, tx: 0, bps: 0, measured: false }
+    // Take the busier endpoint's view of the link.
+    var rx = Math.max(a ? a.rx : 0, b ? b.rx : 0)
+    var tx = Math.max(a ? a.tx : 0, b ? b.tx : 0)
+    return { rx: rx, tx: tx, bps: Math.max(rx, tx), measured: true }
+  }
+
+  function edgeFlowBps(rowA, rowB) {
+    return root.edgeFlow(rowA, rowB).bps
+  }
+
+  // Packets in flight on one direction of a link, straight off the byte rate.
+  // Zero below 1 kB/s: a measured-but-idle link should look idle.
+  function flowPacketCount(bps) {
+    var v = Number(bps) || 0
+    if (v < 1000) return 0
+    var decades = Math.log(v / 1000) / Math.LN10
+    return Math.max(1, Math.min(6, 1 + Math.round(decades * 1.8)))
+  }
+
+  // Pixels per second for a packet. Monotonic in the real rate, log-scaled so a
+  // 1 kB/s trickle and a 100 MB/s transfer are both legible on the same map.
+  function flowSpeedPxPerSec(bps) {
+    var v = Number(bps) || 0
+    if (v < 1000) return 0
+    // Speed is the channel the eye reads best, so it carries most of the range:
+    // ~1 kB/s crawls, ~100 kB/s is a brisk stream, ~10 MB/s is a rush.
+    var t = Math.min(1, (Math.log(1 + v / 1000) / Math.LN10) / 3.5)
+    return 12 + 188 * t
   }
 
   function edgeFlowWidth(bps) {
@@ -465,7 +502,64 @@ Panel {
     return { x: anchor.x, y: anchor.y + d }
   }
 
-  function strokeMapEdge(ctx, aBox, bBox, barMidX, kind) {
+  // Every drawable edge, resolved once per layout change: geometry, colour, the
+  // width its real link rate earns, and how fast packets should walk it. The
+  // canvas and the packet Repeater both read this, so neither recomputes routes
+  // per frame.
+  readonly property var mapEdgeRoutes: {
+    var out = []
+    var boxes = ({})
+    var i
+    for (i = 0; i < root.mapLayout.length; i++) {
+      var b = root.mapLayout[i]
+      boxes[b.id] = { x: b.x, y: b.y, w: b.w, h: b.h }
+    }
+    var barMidX = root.mapHasExternal ? (root.mapSplitX + root.mapBarWidth / 2) : 0
+
+    for (i = 0; i < root.mapEdges.length; i++) {
+      var e = root.mapEdges[i]
+      var aBox = boxes[String(e.from || "")]
+      var bBox = boxes[String(e.to || "")]
+      if (!aBox || !bBox) continue
+      var rowA = root.glanceRowById(e.from)
+      var rowB = root.glanceRowById(e.to)
+      var flow = root.edgeFlow(rowA, rowB)
+      var kind = String(e.kind || "")
+      var pts = root.mapEdgePoints(aBox, bBox, barMidX, kind)
+      var len = root.polylineLength(pts)
+      if (!(len > 0)) continue
+      // A dead endpoint should not look like it is carrying traffic.
+      var down = String((rowA && rowA.status) || "") === "down"
+          || String((rowB && rowB.status) || "") === "down"
+      out.push({
+        points: pts,
+        length: len,
+        kind: kind,
+        width: root.edgeFlowWidth(flow.bps),
+        down: down,
+        // Measured throughput, both directions. rx walks the route forwards,
+        // tx walks it back, so the picture shows which way the bytes go.
+        measured: flow.measured,
+        rxBps: flow.rx,
+        txBps: flow.tx,
+        // Measured bytes are shown even when an endpoint's service check is
+        // down: a failing health URL does not mean the wire is idle. `down`
+        // only dims the lane.
+        rxPackets: root.flowPacketCount(flow.rx),
+        txPackets: root.flowPacketCount(flow.tx),
+        rxSpeed: root.flowSpeedPxPerSec(flow.rx),
+        txSpeed: root.flowSpeedPxPerSec(flow.tx),
+        color: String(down ? root.urgent : (kind === "wan" ? Color.accent : root.themeGreen)),
+        // Stagger so parallel routes do not march in lockstep.
+        stagger: ((i * 17) + String(e.from || "").length * 3 + String(e.to || "").length * 5) % 97
+      })
+    }
+    return out
+  }
+
+  // Orthogonal route between two cards as a point list. Canvas strokes it and the
+  // travelling packets walk it, so both read the same geometry from one place.
+  function mapEdgePoints(aBox, bBox, barMidX, kind) {
     var aCx = aBox.x + aBox.w / 2
     var aCy = aBox.y + aBox.h / 2
     var bCx = bBox.x + bBox.w / 2
@@ -497,33 +591,69 @@ Panel {
 
     a1 = root.mapStubOut(a0, stub)
     b1 = root.mapStubOut(b0, stub)
-    ctx.moveTo(a0.x, a0.y)
-    ctx.lineTo(a1.x, a1.y)
+
+    var pts = [{ x: a0.x, y: a0.y }, { x: a1.x, y: a1.y }]
 
     if (Math.abs(a1.x - b1.x) < 1.5 || Math.abs(a1.y - b1.y) < 1.5) {
-      ctx.lineTo(b1.x, b1.y)
+      pts.push({ x: b1.x, y: b1.y })
     } else if (kind === "wan" && barMidX) {
-      ctx.lineTo(barMidX, a1.y)
-      ctx.lineTo(barMidX, b1.y)
-      ctx.lineTo(b1.x, b1.y)
+      pts.push({ x: barMidX, y: a1.y })
+      pts.push({ x: barMidX, y: b1.y })
+      pts.push({ x: b1.x, y: b1.y })
     } else if (aAbove || bAbove) {
       // Horizontal run strictly in the gap between the two cards.
       var gapLo = aAbove ? aBot : bBot
       var gapHi = aAbove ? bBox.y : aBox.y
       var midY = (gapLo + gapHi) / 2
-      ctx.lineTo(a1.x, midY)
-      ctx.lineTo(b1.x, midY)
-      ctx.lineTo(b1.x, b1.y)
+      pts.push({ x: a1.x, y: midY })
+      pts.push({ x: b1.x, y: midY })
+      pts.push({ x: b1.x, y: b1.y })
     } else {
       var gapL = aCx <= bCx ? (aBox.x + aBox.w) : (bBox.x + bBox.w)
       var gapR = aCx <= bCx ? bBox.x : aBox.x
       var midX = (gapL + gapR) / 2
-      ctx.lineTo(midX, a1.y)
-      ctx.lineTo(midX, b1.y)
-      ctx.lineTo(b1.x, b1.y)
+      pts.push({ x: midX, y: a1.y })
+      pts.push({ x: midX, y: b1.y })
+      pts.push({ x: b1.x, y: b1.y })
     }
-    // Terminate on the border — never continue to the box centre.
-    ctx.lineTo(b0.x, b0.y)
+    // Terminate on the border, never continue to the box centre.
+    pts.push({ x: b0.x, y: b0.y })
+    return pts
+  }
+
+  function strokeMapEdge(ctx, aBox, bBox, barMidX, kind) {
+    var pts = root.mapEdgePoints(aBox, bBox, barMidX, kind)
+    ctx.moveTo(pts[0].x, pts[0].y)
+    for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
+  }
+
+  // Total run length of a polyline, and the point a given distance along it.
+  function polylineLength(pts) {
+    var total = 0
+    for (var i = 1; i < pts.length; i++) {
+      var dx = pts[i].x - pts[i - 1].x
+      var dy = pts[i].y - pts[i - 1].y
+      total += Math.sqrt(dx * dx + dy * dy)
+    }
+    return total
+  }
+
+  function polylinePointAt(pts, dist) {
+    if (!pts || pts.length === 0) return { x: 0, y: 0 }
+    if (pts.length === 1) return { x: pts[0].x, y: pts[0].y }
+    var d = dist
+    for (var i = 1; i < pts.length; i++) {
+      var dx = pts[i].x - pts[i - 1].x
+      var dy = pts[i].y - pts[i - 1].y
+      var seg = Math.sqrt(dx * dx + dy * dy)
+      if (seg <= 0) continue
+      if (d <= seg) {
+        var t = d / seg
+        return { x: pts[i - 1].x + dx * t, y: pts[i - 1].y + dy * t }
+      }
+      d -= seg
+    }
+    return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y }
   }
 
   function routerMachine() {
@@ -547,6 +677,7 @@ Panel {
   function lanTrafficTotals() {
     var rx = 0
     var tx = 0
+    var measured = false
     var i, m
     var router = root.routerMachine()
     var routerId = router ? String(router.id || "") : ""
@@ -556,8 +687,9 @@ Panel {
       if (!m.rates) continue
       if (m.rates.rx_bps != null) rx += Number(m.rates.rx_bps) || 0
       if (m.rates.tx_bps != null) tx += Number(m.rates.tx_bps) || 0
+      measured = true
     }
-    return { rx_bps: rx, tx_bps: tx }
+    return { rx_bps: rx, tx_bps: tx, measured: measured }
   }
 
   function routerMetric(row) {
@@ -1908,6 +2040,59 @@ Panel {
         return Qt.alpha(root.statusColor(status), selected || status === "down" ? 1.0 : 0.88)
       return root.borderIdle
     }
+    antialiasing: true
+
+    // Status as light. A card's health is legible across the room without
+    // reading the dot or the label: green sits still, amber breathes, red
+    // pulses hard. Drawn as a halo behind the card so the fill stays the
+    // status colour decided in 0.3.6 and nothing washes over the text.
+    Rectangle {
+      id: halo
+      z: -1
+      anchors.centerIn: parent
+      width: parent.width + Style.space(16)
+      height: parent.height + Style.space(16)
+      radius: parent.radius + Style.space(8)
+      color: "transparent"
+      antialiasing: true
+      visible: mapBox.status === "up" || mapBox.status === "degraded"
+          || mapBox.status === "down" || mapBox.selected
+      border.width: Style.space(8)
+      border.color: Qt.alpha(root.statusColor(mapBox.status), halo.glow)
+
+      property real glow: 0.10
+      Behavior on glow { NumberAnimation { duration: 240 } }
+
+      states: [
+        State {
+          name: "down"
+          when: mapBox.status === "down"
+          PropertyChanges { halo.glow: 0.34 }
+        },
+        State {
+          name: "degraded"
+          when: mapBox.status === "degraded"
+          PropertyChanges { halo.glow: 0.22 }
+        }
+      ]
+
+      SequentialAnimation on opacity {
+        running: mapBox.status === "down" || mapBox.status === "degraded"
+        loops: Animation.Infinite
+        alwaysRunToEnd: true
+        NumberAnimation {
+          to: mapBox.status === "down" ? 0.35 : 0.6
+          duration: mapBox.status === "down" ? 620 : 1100
+          easing.type: Easing.InOutSine
+        }
+        NumberAnimation {
+          to: 1
+          duration: mapBox.status === "down" ? 620 : 1100
+          easing.type: Easing.InOutSine
+        }
+        onRunningChanged: if (!running) halo.opacity = 1
+      }
+    }
 
     Rectangle {
       visible: !mapBox.isLan
@@ -2478,8 +2663,8 @@ Panel {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · Visio elbows · Flow toggles animation"
-                        : "Machines → Caddy → services · Flow toggles animation")
+                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · Flow = measured throughput"
+                        : "Machines → Caddy → services · Flow = measured throughput, a still line is unmeasured")
                     : "Dash · colour lights · Move to LAN for noise"
                 color: root.inkDim
                 font.family: root.fontFamily
@@ -2626,41 +2811,72 @@ Panel {
               border.width: 1
               border.color: Qt.alpha(Color.accent, 0.45)
 
-              // Router column: body + one slow pulse (aggregate rates belong here only)
-              Canvas {
-                id: routerTrafficCanvas
+              // Router column: a static spine whose width is the aggregate rate,
+              // with packets walking it. Static so it is not re-rasterised per frame.
+              Item {
+                id: routerFlow
                 anchors.fill: parent
                 anchors.margins: Style.space(4)
-                property real phase: root.edgePhase
-                onPhaseChanged: requestPaint()
-                onPaint: {
-                  var ctx = getContext("2d")
-                  ctx.clearRect(0, 0, width, height)
-                  var tot = root.lanTrafficTotals()
-                  var bps = Math.max(tot.rx_bps || 0, tot.tx_bps || 0)
-                  var w = root.edgeFlowWidth(bps)
-                  var cx = width / 2
-                  var y0 = 10
-                  var y1 = height - 10
-                  var accent = Color.accent
-                  ctx.lineCap = "round"
-                  ctx.strokeStyle = Qt.alpha(accent, 0.22)
-                  ctx.lineWidth = w
-                  ctx.beginPath()
-                  ctx.moveTo(cx, y0)
-                  ctx.lineTo(cx, y1)
-                  ctx.stroke()
-                  if (root.mapAnimate) {
-                    // March visibility is fixed — rate only thickens the underglow / sets pace.
-                    ctx.strokeStyle = Qt.alpha(accent, 0.9)
-                    ctx.lineWidth = 2.2
-                    ctx.setLineDash([8, 14])
-                    ctx.lineDashOffset = -(phase * root.edgeFlowSpeed(bps))
-                    ctx.beginPath()
-                    ctx.moveTo(cx, y0)
-                    ctx.lineTo(cx, y1)
-                    ctx.stroke()
-                    ctx.setLineDash([])
+
+                readonly property var totals: root.lanTrafficTotals()
+                readonly property real bps: Math.max(routerFlow.totals.rx_bps || 0,
+                                                     routerFlow.totals.tx_bps || 0)
+                readonly property real y0: 10
+                readonly property real y1: Math.max(routerFlow.y0 + 1, height - 10)
+                readonly property real span: routerFlow.y1 - routerFlow.y0
+
+                Rectangle {
+                  x: (parent.width - width) / 2
+                  y: routerFlow.y0
+                  width: Math.max(2, root.edgeFlowWidth(routerFlow.bps))
+                  height: routerFlow.span
+                  radius: width / 2
+                  color: Qt.alpha(Color.accent, 0.22)
+                  antialiasing: true
+                }
+
+                // Aggregate LAN throughput, down the column for rx and up for tx.
+                Repeater {
+                  model: root.mapAnimate && routerFlow.totals.measured ? 2 : 0
+                  delegate: Item {
+                    id: routerDir
+                    required property int index
+                    anchors.fill: parent
+                    readonly property bool inbound: routerDir.index === 0
+                    readonly property real bps: routerDir.inbound
+                        ? (routerFlow.totals.rx_bps || 0) : (routerFlow.totals.tx_bps || 0)
+                    readonly property int count: root.flowPacketCount(routerDir.bps)
+                    readonly property real speed: root.flowSpeedPxPerSec(routerDir.bps)
+
+                    Repeater {
+                      model: routerDir.count
+                      delegate: Rectangle {
+                        id: routerPacket
+                        required property int index
+                        readonly property real travelled: {
+                          if (!(routerFlow.span > 0) || routerDir.count <= 0) return 0
+                          var offset = routerFlow.span * (routerPacket.index / routerDir.count)
+                          var walked = (root.edgePhase * routerDir.speed + offset) % routerFlow.span
+                          return routerDir.inbound ? walked : (routerFlow.span - walked)
+                        }
+                        width: 5
+                        height: width
+                        radius: width / 2
+                        x: (parent.width - width) / 2
+                        y: routerFlow.y0 + routerPacket.travelled - height / 2
+                        color: routerDir.inbound ? Color.accent : Qt.lighter(Color.accent, 1.5)
+                        antialiasing: true
+                        Rectangle {
+                          anchors.centerIn: parent
+                          width: parent.width * 3
+                          height: width
+                          radius: width / 2
+                          color: Qt.alpha(parent.color, 0.18)
+                          z: -1
+                          antialiasing: true
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -2714,71 +2930,141 @@ Panel {
               font.bold: true
             }
 
-            Timer {
-              interval: 50
-              running: root.opened && root.view === "glance" && root.glanceTab === "map" && root.mapAnimate
-              repeat: true
-              onTriggered: {
-                // ~44 dash-units/sec against [8,14] (~22px period).
-                root.edgePhase = (root.edgePhase + 2.2) % 1000
-                edgeCanvas.requestPaint()
-                if (routerTrafficCanvas) routerTrafficCanvas.requestPaint()
-              }
+            // One property animation drives every packet. Nothing repaints the
+            // canvas per frame any more: the routes only change when the layout,
+            // the statuses or the rates change.
+            NumberAnimation {
+              id: flowClock
+              // edgePhase lives on root, so the animation needs an explicit
+              // target; "NumberAnimation on edgePhase" would bind to mapArea.
+              target: root
+              property: "edgePhase"
+              // A wall clock in seconds, so packet speeds below are literally
+              // pixels per second rather than an arbitrary phase.
+              running: root.opened && root.view === "glance"
+                  && root.glanceTab === "map" && root.mapAnimate
+              loops: Animation.Infinite
+              from: 0
+              to: 3600
+              duration: 3600000
+              easing.type: Easing.Linear
             }
 
+            // Static geometry: the soft underglow and the route itself.
             Canvas {
               id: edgeCanvas
               anchors.fill: parent
               z: 0
+              renderStrategy: Canvas.Cooperative
+              property var routes: root.mapEdgeRoutes
+              onRoutesChanged: requestPaint()
               onPaint: {
                 var ctx = getContext("2d")
                 ctx.clearRect(0, 0, width, height)
-                var boxes = ({})
-                var i, box
-                for (i = 0; i < root.mapLayout.length; i++) {
-                  box = root.mapLayout[i]
-                  boxes[box.id] = {
-                    x: box.x, y: box.y, w: box.w, h: box.h
-                  }
-                }
-                var barMidX = root.mapHasExternal
-                    ? (root.mapSplitX + root.mapBarWidth / 2)
-                    : 0
-
                 ctx.lineCap = "round"
                 ctx.lineJoin = "round"
-                for (i = 0; i < root.mapEdges.length; i++) {
-                  var e = root.mapEdges[i]
-                  var aBox = boxes[String(e.from || "")]
-                  var bBox = boxes[String(e.to || "")]
-                  if (!aBox || !bBox) continue
-                  var rowA = root.glanceRowById(e.from)
-                  var rowB = root.glanceRowById(e.to)
-                  var bps = root.edgeFlowBps(rowA, rowB)
-                  var w = root.edgeFlowWidth(bps)
-                  var kind = String(e.kind || "")
-                  var isWan = kind === "wan"
-                  var base = isWan ? Color.accent : root.themeGreen
-                  // Soft underglow: width tracks real endpoint rates (deba looks fat when busy).
-                  ctx.strokeStyle = Qt.alpha(base, 0.28)
-                  ctx.lineWidth = w
-                  ctx.setLineDash([])
+                var list = root.mapEdgeRoutes
+                for (var i = 0; i < list.length; i++) {
+                  var r = list[i]
+                  var pts = r.points
+                  // Underglow: width tracks real endpoint rates.
+                  ctx.strokeStyle = Qt.alpha(r.color, r.down ? 0.20 : 0.26)
+                  ctx.lineWidth = r.width
                   ctx.beginPath()
-                  root.strokeMapEdge(ctx, aBox, bBox, barMidX, kind)
+                  ctx.moveTo(pts[0].x, pts[0].y)
+                  for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y)
                   ctx.stroke()
-                  if (root.mapAnimate) {
-                    // Same march on every edge; phase stagger so they don't lockstep.
-                    // Pace from endpoint rates: busy ≈ full speed, quiet ≈ 1/10.
-                    var stagger = ((i * 17) + String(e.from || "").length * 3 + String(e.to || "").length * 5) % 22
-                    var pace = root.edgeFlowSpeed(bps)
-                    ctx.strokeStyle = Qt.alpha(base, 0.88)
-                    ctx.lineWidth = 2.0
-                    ctx.setLineDash([8, 14])
-                    ctx.lineDashOffset = -(root.edgePhase * pace + stagger)
-                    ctx.beginPath()
-                    root.strokeMapEdge(ctx, aBox, bBox, barMidX, kind)
-                    ctx.stroke()
-                    ctx.setLineDash([])
+                  // The route, thin and definite.
+                  ctx.strokeStyle = Qt.alpha(r.color, r.down ? 0.34 : 0.55)
+                  ctx.lineWidth = 1.4
+                  ctx.beginPath()
+                  ctx.moveTo(pts[0].x, pts[0].y)
+                  for (j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y)
+                  ctx.stroke()
+                }
+              }
+            }
+
+            // Travelling packets. Every one of these is measured throughput:
+            // the count comes from the byte rate, the speed is pixels per second
+            // derived from that rate, and rx walks the route while tx walks back.
+            // An edge with no telemetry gets nothing, so a still line means "not
+            // measured" rather than "idle".
+            Repeater {
+              model: root.mapAnimate ? root.mapEdgeRoutes : []
+              z: 1
+              delegate: Item {
+                id: flowLane
+                required property var modelData
+                anchors.fill: parent
+                visible: modelData.measured
+                opacity: modelData.down ? 0.55 : 1.0
+
+                // rx forwards, tx backwards.
+                Repeater {
+                  model: 2
+                  delegate: Item {
+                    id: direction
+                    required property int index
+                    anchors.fill: parent
+                    readonly property bool inbound: direction.index === 0
+                    readonly property int count: direction.inbound
+                        ? flowLane.modelData.rxPackets : flowLane.modelData.txPackets
+                    readonly property real speed: direction.inbound
+                        ? flowLane.modelData.rxSpeed : flowLane.modelData.txSpeed
+
+                    Repeater {
+                      model: direction.count
+                      delegate: Rectangle {
+                        id: packet
+                        required property int index
+                        readonly property real span: flowLane.modelData.length
+                        // Evenly spaced along the route, so a busy link reads as a
+                        // stream and a trickle reads as a single dot.
+                        readonly property real travelled: {
+                          if (!(packet.span > 0) || direction.count <= 0) return 0
+                          var offset = packet.span * (packet.index / direction.count)
+                          var d = root.edgePhase * direction.speed + offset + flowLane.modelData.stagger
+                          var walked = d % packet.span
+                          return direction.inbound ? walked : (packet.span - walked)
+                        }
+                        readonly property var pos: root.polylinePointAt(flowLane.modelData.points, packet.travelled)
+
+                        width: Math.max(4.5, Math.min(8, flowLane.modelData.width * 1.1))
+                        height: width
+                        radius: width / 2
+                        x: pos.x - width / 2
+                        y: pos.y - height / 2
+                        // Outbound bytes read cooler than inbound, so direction is
+                        // visible without watching which way a dot moves.
+                        color: direction.inbound
+                            ? flowLane.modelData.color
+                            : Qt.lighter(flowLane.modelData.color, 1.5)
+                        opacity: 0.95
+                        antialiasing: true
+
+                        // Two rings of falloff so a packet reads as light on the
+                        // wire rather than a hard dot sliding along it.
+                        Rectangle {
+                          anchors.centerIn: parent
+                          width: parent.width * 2.4
+                          height: width
+                          radius: width / 2
+                          color: Qt.alpha(parent.color, 0.26)
+                          z: -1
+                          antialiasing: true
+                        }
+                        Rectangle {
+                          anchors.centerIn: parent
+                          width: parent.width * 4.2
+                          height: width
+                          radius: width / 2
+                          color: Qt.alpha(parent.color, 0.12)
+                          z: -2
+                          antialiasing: true
+                        }
+                      }
+                    }
                   }
                 }
               }
