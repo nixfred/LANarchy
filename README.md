@@ -94,7 +94,7 @@ cp unifi-secrets.json.example ~/.config/omarchy/plugins/homelab-mesh/unifi-secre
 | List / Map | Tabs or `l` / `m` |
 | Hide / demote selected card | Detail **Move to LAN** or `h` — card joins the LAN bucket (still probed) |
 | Restore to main map | List → **LAN** → **Show** (or **Show all on map**) |
-| Animate map traffic | **FLOW** / **STATIC** chip or `a` — persists as `settings.mapAnimate` |
+| Animate map traffic | **Flow** tab (map) or `a` — persists as `settings.mapAnimate` |
 | Refresh | `r` |
 | Setup | `⚙ Setup` or `s` |
 | Map select / notify | Arrows · Enter toggles ALERT/MUTE |

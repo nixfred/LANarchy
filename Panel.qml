@@ -2120,8 +2120,8 @@ Panel {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · Visio elbows · FLOW toggles animation"
-                        : "Machines → Caddy → services · FLOW toggles animation")
+                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · Visio elbows · Flow toggles animation"
+                        : "Machines → Caddy → services · Flow toggles animation")
                     : "Dash · colour lights · Move to LAN for noise"
                 color: root.inkDim
                 font.family: root.fontFamily
@@ -2178,11 +2178,11 @@ Panel {
               onClicked: root.glanceTab = "list"
             }
             Item { width: Style.space(8); height: 1 }
-            SegBtn {
+            TabAction {
               visible: root.glanceTab === "map"
-              label: root.mapAnimate ? "FLOW" : "STATIC"
-              active: root.mapAnimate
-              onTapped: root.setMapAnimate(!root.mapAnimate)
+              text: "Flow"
+              selected: root.mapAnimate
+              onClicked: root.setMapAnimate(!root.mapAnimate)
             }
             Item { width: Style.space(8); height: 1 }
             Text {
