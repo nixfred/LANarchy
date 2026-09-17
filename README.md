@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/screenshots/map.png" width="900" alt="Lanarchy map: machines to Caddy hub to services, leftover LAN cluster, theme-coloured borders">
+<img src="docs/screenshots/map-0.3.12.png" width="900" alt="Lanarchy map: machines to Caddy hub to services, leftover LAN cluster, theme-coloured borders">
 
 # Lanarchy
 
@@ -33,13 +33,13 @@ Lanarchy keeps that straight:
 | **proxy** | Caddy health URL | HTTP 2xx/3xx or TCP check |
 
 <div align="center">
-<img src="docs/screenshots/list.png" width="520" alt="Lanarchy list dash: machines, UniFi, grouped services with colour lights">
+<img src="docs/screenshots/list-0.3.12.png" width="520" alt="Lanarchy list dash: machines, UniFi, grouped services with colour lights">
 </div>
 
 List is the default dash (Pulse-style colour lights). Map is the letterbox of the same mesh. Setup is where you **Search network** instead of hand-entering addresses.
 
 <div align="center">
-<img src="docs/screenshots/setup.png" width="520" alt="Lanarchy Setup: Find hosts Search network button and inventory with machine/host pills">
+<img src="docs/screenshots/setup-0.3.12.png" width="520" alt="Lanarchy Setup: Find hosts Search network button and inventory with machine/host pills">
 </div>
 
 ---
