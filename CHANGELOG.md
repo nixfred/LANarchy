@@ -59,7 +59,7 @@ The version in `manifest.json` is the single source of truth.
 
 - Map: three columns — INTERNAL | ROUTER bar | EXTERNAL
 - Router bar (redUltra) shows live aggregate LAN ↓/↑ traffic; edges bend through it
-- Cloud boxes: Omotenashi worker, xMCP, Modal smoke (`httpReachable` for 401/404 edges)
+- External/cloud boxes with `httpReachable` for 401/404 edges
 - Packaging: plugin root is the git repo root (marketplace `omarchy plugin add` layout)
 
 ## 0.3.1 — 2026-09-17

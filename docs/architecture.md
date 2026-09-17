@@ -1,8 +1,8 @@
-# Lanarchy architecture (OmarPlugs-5oy.9)
+# Lanarchy architecture
 
-Product name **Lanarchy**. Plugin id remains `donnie.homelab-mesh` until an optional rename bead lands.
+Product name **Lanarchy**. Plugin id: `donnie.homelab-mesh`.
 
-This document signs the sidecar formats that **5oy.2**, **5oy.3**, and **5oy.6** share. The bar **glance probe JSON stays unchanged** (`as_of`, `machines`, `lan`, `proxies`).
+This document defines the sidecar formats the panel, probe, and daemon share. The bar **glance probe JSON stays unchanged** (`as_of`, `machines`, `lan`, `proxies`).
 
 ## Config paths
 
@@ -66,7 +66,7 @@ Normalization rules:
 
 ## Edge graph (v1)
 
-**Purpose:** Letterbox map draws lines between ids. Pulse period uses **RTT at endpoints**, not throughput (**5oy.5** adds real metrics later).
+**Purpose:** Letterbox map draws lines between ids. Pulse period uses **RTT at endpoints**, not throughput (link rates when present).
 
 Default derivation when `edges` is absent:
 
@@ -128,7 +128,7 @@ Single JSON file, append-friendly structure, rewritten atomically (`.tmp` + rena
 
 **Readers:** QML via `python3 history_cli.py sparkline --id deba --n 32` → JSON array of numbers for sparkline; map/detail strip uses last sample status + RTT.
 
-## Notify (5oy.2)
+## Notify
 
 **Policy:**
 
@@ -161,7 +161,7 @@ Inventory `notify: false` skips increment and send for that id.
 
 Panel merges glance rows with inventory `notify` for toggles in map and Setup.
 
-## Collector daemon (5oy.12)
+## Collector daemon
 
 `daemon.py` is the single writer. `fcntl` flock on `.daemon.lock`; loop every 15s calls `run_probe(write_stdout=False)` and atomically replaces `snapshot.json`.
 
@@ -169,13 +169,13 @@ The panel **starts** the daemon on open (idempotent via flock) and **only reads*
 
 Edge pulse uses `rx_bps` when present, else endpoint RTT.
 
-## Telemetry (5oy.10)
+## Telemetry
 
 No extra packages. SSH sysfs + `/proc/net/dev` for machines that accept BatchMode; local sysfs for this box; `curl -w` for HTTP proxies; `ip -4 neigh` + DNS timing for the LAN cluster; WoL is a raw UDP magic packet (`probe.py wol <id|mac>`). A machine-row Speedtest runs `probe.py speedtest --id <machine>`. That command measures curl throughput from `settings.speedtestUrl` or `https://files.lan/`, then tries iperf3 via SSH only if that binary is already present. iperf3 is not a dependency. `ss -tunH` socket counts ride the same BatchMode hop. Missing `ss` or SSH omits `talkers` on the machine row.
 
 Ethernet negotiated below 1000 Mbit is `link.grade: degraded` (amber on the dash).
 
-## UniFi (5oy.22)
+## UniFi
 
 Optional. The collector always tries `GET {settings.unifi.url}/api/system` (no auth) so a Cloud Gateway / UDM shows name + model on the dash. Clients, APs, and switches require credentials in `unifi-secrets.json`:
 

@@ -1,7 +1,7 @@
 # Castle socket
 
 Selected Lanarchy icon: castle battlements surrounding an Ethernet-shaped gate.
-The SVGs preserve the approved Castle socket geometry from the Portcullis studies.
+The SVGs preserve the Castle socket geometry (battlements around an Ethernet-shaped gate).
 
 - `castle-socket-light.svg` / `.png`: warm ivory (`#E6E5DD`) for dark backgrounds.
 - `castle-socket-dark.svg` / `.png`: charcoal (`#171A20`) for light backgrounds.
