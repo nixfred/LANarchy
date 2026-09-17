@@ -3,6 +3,11 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.13 — 2026-09-17
+
+- Map edges: bottom→top Visio ports, elbows in gutters (no lines through card centres)
+- Flow march on every edge with stagger; busy links full pace, quiet/no-rate at 1/10
+
 ## 0.3.12 — 2026-09-17
 
 - Resolve plugin dir from install location (marketplace `donnie.homelab-mesh`), not a hardcoded `homelab-mesh` path

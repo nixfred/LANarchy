@@ -408,6 +408,13 @@ Panel {
     return Math.min(5.2, 4.2 + Math.log(v / 80000) / Math.log(25))
   }
 
+  // Dash march: busy links keep full pace; quiet/no-rate links crawl at 1/10.
+  function edgeFlowSpeed(bps) {
+    var v = Number(bps) || 0
+    if (v < 800) return 0.1
+    return 1.0
+  }
+
   function edgeFlowPeriod(bps) {
     return 1.0
   }
@@ -428,7 +435,7 @@ Panel {
     root.runInventoryWrite(root.inventoryWritePayload(root.nodes, settings))
   }
 
-  // Visio-style: attach to card borders, then Manhattan elbows through the gaps.
+  // Visio-style: attach to card borders only, Manhattan elbows in the gutters.
   function mapBoxAnchor(box, towardX, towardY) {
     var cx = box.x + box.w / 2
     var cy = box.y + box.h / 2
@@ -457,42 +464,63 @@ Panel {
   }
 
   function strokeMapEdge(ctx, aBox, bBox, barMidX, kind) {
-    var aC = { x: aBox.x + aBox.w / 2, y: aBox.y + aBox.h / 2 }
-    var bC = { x: bBox.x + bBox.w / 2, y: bBox.y + bBox.h / 2 }
+    var aCx = aBox.x + aBox.w / 2
+    var aCy = aBox.y + aBox.h / 2
+    var bCx = bBox.x + bBox.w / 2
+    var bCy = bBox.y + bBox.h / 2
+    var stub = Style.space(10)
     var a0, b0, a1, b1
-    // Prefer side exits for WAN across the router column.
+    var aBot = aBox.y + aBox.h
+    var bBot = bBox.y + bBox.h
+    // Clear vertical stack (machine→hub→service): leave bottom, enter top.
+    var aAbove = aBot <= bBox.y + 2
+    var bAbove = bBot <= aBox.y + 2
+
     if (kind === "wan" && barMidX) {
-      a0 = { x: aBox.x + aBox.w, y: aC.y, side: "right" }
-      b0 = { x: bBox.x, y: bC.y, side: "left" }
+      a0 = { x: aBox.x + aBox.w, y: aCy, side: "right" }
+      b0 = { x: bBox.x, y: bCy, side: "left" }
+    } else if (aAbove) {
+      a0 = { x: aCx, y: aBot, side: "bottom" }
+      b0 = { x: bCx, y: bBox.y, side: "top" }
+    } else if (bAbove) {
+      a0 = { x: aCx, y: aBox.y, side: "top" }
+      b0 = { x: bCx, y: bBot, side: "bottom" }
+    } else if (aCx <= bCx) {
+      a0 = { x: aBox.x + aBox.w, y: aCy, side: "right" }
+      b0 = { x: bBox.x, y: bCy, side: "left" }
     } else {
-      a0 = root.mapBoxAnchor(aBox, bC.x, bC.y)
-      b0 = root.mapBoxAnchor(bBox, aC.x, aC.y)
+      a0 = { x: aBox.x, y: aCy, side: "left" }
+      b0 = { x: bBox.x + bBox.w, y: bCy, side: "right" }
     }
-    a1 = root.mapStubOut(a0, Style.space(10))
-    b1 = root.mapStubOut(b0, Style.space(10))
+
+    a1 = root.mapStubOut(a0, stub)
+    b1 = root.mapStubOut(b0, stub)
     ctx.moveTo(a0.x, a0.y)
     ctx.lineTo(a1.x, a1.y)
-    if (Math.abs(a1.x - b1.x) < 1.5) {
-      ctx.lineTo(b1.x, b1.y)
-    } else if (Math.abs(a1.y - b1.y) < 1.5) {
+
+    if (Math.abs(a1.x - b1.x) < 1.5 || Math.abs(a1.y - b1.y) < 1.5) {
       ctx.lineTo(b1.x, b1.y)
     } else if (kind === "wan" && barMidX) {
       ctx.lineTo(barMidX, a1.y)
       ctx.lineTo(barMidX, b1.y)
       ctx.lineTo(b1.x, b1.y)
+    } else if (aAbove || bAbove) {
+      // Horizontal run strictly in the gap between the two cards.
+      var gapLo = aAbove ? aBot : bBot
+      var gapHi = aAbove ? bBox.y : aBox.y
+      var midY = (gapLo + gapHi) / 2
+      ctx.lineTo(a1.x, midY)
+      ctx.lineTo(b1.x, midY)
+      ctx.lineTo(b1.x, b1.y)
     } else {
-      // Elbow in the gap between cards (not through their interiors).
-      var midY = (a1.y + b1.y) / 2
-      var midX = (a1.x + b1.x) / 2
-      if (a0.side === "bottom" || a0.side === "top" || b0.side === "bottom" || b0.side === "top") {
-        ctx.lineTo(a1.x, midY)
-        ctx.lineTo(b1.x, midY)
-      } else {
-        ctx.lineTo(midX, a1.y)
-        ctx.lineTo(midX, b1.y)
-      }
+      var gapL = aCx <= bCx ? (aBox.x + aBox.w) : (bBox.x + bBox.w)
+      var gapR = aCx <= bCx ? bBox.x : aBox.x
+      var midX = (gapL + gapR) / 2
+      ctx.lineTo(midX, a1.y)
+      ctx.lineTo(midX, b1.y)
       ctx.lineTo(b1.x, b1.y)
     }
+    // Terminate on the border — never continue to the box centre.
     ctx.lineTo(b0.x, b0.y)
   }
 
@@ -2300,10 +2328,11 @@ Panel {
                   ctx.lineTo(cx, y1)
                   ctx.stroke()
                   if (root.mapAnimate) {
-                    ctx.strokeStyle = Qt.alpha(accent, 0.85)
-                    ctx.lineWidth = Math.max(1.5, w * 0.45)
-                    ctx.setLineDash([10, 16])
-                    ctx.lineDashOffset = -phase
+                    // March visibility is fixed — rate only thickens the underglow / sets pace.
+                    ctx.strokeStyle = Qt.alpha(accent, 0.9)
+                    ctx.lineWidth = 2.2
+                    ctx.setLineDash([8, 14])
+                    ctx.lineDashOffset = -(phase * root.edgeFlowSpeed(bps))
                     ctx.beginPath()
                     ctx.moveTo(cx, y0)
                     ctx.lineTo(cx, y1)
@@ -2367,8 +2396,8 @@ Panel {
               running: root.opened && root.view === "glance" && root.glanceTab === "map" && root.mapAnimate
               repeat: true
               onTriggered: {
-                // Visible march: ~40 dash-units/sec against [10,16] pattern.
-                root.edgePhase = (root.edgePhase + 2.0) % 1000
+                // ~44 dash-units/sec against [8,14] (~22px period).
+                root.edgePhase = (root.edgePhase + 2.2) % 1000
                 edgeCanvas.requestPaint()
                 if (routerTrafficCanvas) routerTrafficCanvas.requestPaint()
               }
@@ -2407,17 +2436,22 @@ Panel {
                   var kind = String(e.kind || "")
                   var isWan = kind === "wan"
                   var base = isWan ? Color.accent : root.themeGreen
-                  ctx.strokeStyle = Qt.alpha(base, 0.30)
+                  // Soft underglow: width tracks real endpoint rates (deba looks fat when busy).
+                  ctx.strokeStyle = Qt.alpha(base, 0.28)
                   ctx.lineWidth = w
                   ctx.setLineDash([])
                   ctx.beginPath()
                   root.strokeMapEdge(ctx, aBox, bBox, barMidX, kind)
                   ctx.stroke()
                   if (root.mapAnimate) {
-                    ctx.strokeStyle = Qt.alpha(base, 0.82)
-                    ctx.lineWidth = Math.max(1.4, w * 0.45)
-                    ctx.setLineDash([10, 16])
-                    ctx.lineDashOffset = -root.edgePhase
+                    // Same march on every edge; phase stagger so they don't lockstep.
+                    // Pace from endpoint rates: busy ≈ full speed, quiet ≈ 1/10.
+                    var stagger = ((i * 17) + String(e.from || "").length * 3 + String(e.to || "").length * 5) % 22
+                    var pace = root.edgeFlowSpeed(bps)
+                    ctx.strokeStyle = Qt.alpha(base, 0.88)
+                    ctx.lineWidth = 2.0
+                    ctx.setLineDash([8, 14])
+                    ctx.lineDashOffset = -(root.edgePhase * pace + stagger)
                     ctx.beginPath()
                     root.strokeMapEdge(ctx, aBox, bBox, barMidX, kind)
                     ctx.stroke()
