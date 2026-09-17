@@ -59,7 +59,6 @@ Panel {
   property bool showLan: false
   property bool showProxies: false
   property bool mapQuietUp: false
-  property bool mapHiddenDrawer: false
   property var invSettings: ({})
   property string actionStatus: ""
   property bool findHostsBusy: false
@@ -223,7 +222,7 @@ Panel {
   }
 
   function lanClusterRow() {
-    var rows = root.quietLan
+    var rows = root.lanBucketRows()
     var up = 0
     var down = 0
     var lights = []
@@ -255,7 +254,9 @@ Panel {
   }
 
   function lanClusterMetric(up, total) {
-    var bits = [(up + "/" + total) + (total ? " leftover" : "")]
+    var bits = [(up + "/" + total) + (total ? " in LAN" : "")]
+    var demoted = root.mapHiddenCount()
+    if (demoted) bits.push(demoted + " demoted")
     var meta = root.lanMeta || {}
     if (meta.dns_ms != null) bits.push("dns " + Math.round(Number(meta.dns_ms)) + "ms")
     if (meta.neighbors != null) bits.push(meta.neighbors + " neigh")
@@ -343,6 +344,8 @@ Panel {
         edges.push({ from: hub, to: gid, kind: kind })
     }
     if (root.quietLan.length && !root.mapQuietUp)
+      edges.push({ from: hub, to: "__lan__", kind: "lan" })
+    else if (root.mapHiddenCount() && !root.mapQuietUp)
       edges.push({ from: hub, to: "__lan__", kind: "lan" })
     root.mapEdges = edges
   }
@@ -468,17 +471,36 @@ Panel {
   }
 
   function mapHiddenCount() {
-    var n = 0
-    var i, g, m
+    return root.mapHiddenEntries().length
+  }
+
+  function lanBucketRows() {
+    // Natural leftovers + anything demoted from the main map via Hide / Move to LAN.
+    var out = []
+    var seen = ({})
+    var i, row, id, g, m
+    for (i = 0; i < root.quietLan.length; i++) {
+      row = root.quietLan[i]
+      id = String(row.id || "")
+      if (!id || seen[id]) continue
+      seen[id] = true
+      out.push(row)
+    }
     for (i = 0; i < root.groups.length; i++) {
       g = root.groups[i]
-      if (root.mapHiddenForId(g.id)) n++
+      id = String(g.id || "")
+      if (!id || seen[id] || !root.mapHiddenForId(id)) continue
+      seen[id] = true
+      out.push(g)
     }
     for (i = 0; i < root.machines.length; i++) {
       m = root.machines[i]
-      if (root.mapHiddenForId(m.id)) n++
+      id = String(m.id || "")
+      if (!id || seen[id] || !root.mapHiddenForId(id)) continue
+      seen[id] = true
+      out.push(m)
     }
-    return n
+    return out
   }
 
   function toggleMapHidden(sid) {
@@ -503,6 +525,10 @@ Panel {
       next.push(node)
     }
     root.writeNodes(next)
+    if (hide) {
+      // Land in the LAN bucket immediately so Hide feels like a move, not a vanish.
+      root.showLan = true
+    }
     root.rebuildMapEdges()
     root.recalcMapLayout()
   }
@@ -547,7 +573,6 @@ Panel {
       next.push(node)
     }
     root.writeNodes(next)
-    root.mapHiddenDrawer = false
     root.rebuildMapEdges()
     root.recalcMapLayout()
   }
@@ -729,10 +754,10 @@ Panel {
     var svcs = root.internalGroups(hub)
     colBand(svcs, "service", Style.space(250), "service", root.serviceMetric, root.serviceLights, 0, leftW)
 
-    if (root.quietLan.length && root.mapRowVisible(root.lanClusterRow(), "lan")) {
+    if (root.lanBucketRows().length && root.mapRowVisible(root.lanClusterRow(), "lan")) {
       var cluster = root.lanClusterRow()
       var clusterW = Math.min(Style.space(280), leftW - Style.space(20))
-      place(cluster, "leftover", (leftW - clusterW) / 2, Style.space(360),
+      place(cluster, "LAN bucket", (leftW - clusterW) / 2, Style.space(360),
             clusterW, Style.space(72), "lan", cluster.metric, cluster.lights)
     }
 
@@ -914,7 +939,7 @@ Panel {
   function mapCardTooltip(id, label, status, notifyOn) {
     if (String(id) === "__lan__") {
       var cluster = root.lanClusterRow()
-      var lines = [cluster.metric, "Open List with LAN on for every leftover host"]
+      var lines = [cluster.metric, "List → LAN: leftovers + demoted cards · Show brings them back"]
       var unknown = (root.lanMeta && root.lanMeta.unknown_hosts) ? root.lanMeta.unknown_hosts : []
       var u
       for (u = 0; u < unknown.length && u < 6; u++)
@@ -1015,12 +1040,12 @@ Panel {
     if (!root.asOf) return "NO DATA"
     if (root.snapshotStale()) return "STALE"
     var total = root.machines.length + root.groups.length
-    if (root.showLan) total += root.quietLan.length
+    if (root.showLan) total += root.lanBucketRows().length
     if (root.showProxies) total += root.quietProxies.length
     if (total === 0) return "NO DATA"
     var down = 0
     var bands = [root.machines, root.groups]
-    if (root.showLan) bands.push(root.quietLan)
+    if (root.showLan) bands.push(root.lanBucketRows())
     if (root.showProxies) bands.push(root.quietProxies)
     var b, i
     for (b = 0; b < bands.length; b++) {
@@ -2038,7 +2063,7 @@ Panel {
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
                         ? "2⁄3 INTERNAL · reverse proxy hub · router bar · 1⁄3 EXTERNAL · ISSUES hides healthy services"
-                        : "Machines → Caddy → services · leftover LAN clustered")
+                        : "Machines → Caddy → services · Move to LAN demotes into the LAN bucket")
                     : "Dash · colour lights · toggle the noise"
                 color: root.inkDim
                 font.family: root.fontFamily
@@ -2096,7 +2121,7 @@ Panel {
             }
             Item { width: Style.space(8); height: 1 }
             SegBtn {
-              label: "LAN" + (root.quietLan.length ? " " + root.quietLan.length : "")
+              label: "LAN" + (root.lanBucketRows().length ? " " + root.lanBucketRows().length : "")
               active: root.showLan
               onTapped: {
                 root.showLan = !root.showLan
@@ -2113,12 +2138,6 @@ Panel {
               label: root.mapQuietUp ? "ISSUES" : "ALL"
               active: root.mapQuietUp
               onTapped: root.setMapQuietUp(!root.mapQuietUp)
-            }
-            SegBtn {
-              visible: root.glanceTab === "map"
-              label: "HIDDEN" + (root.mapHiddenCount() ? " " + root.mapHiddenCount() : "")
-              active: root.mapHiddenDrawer
-              onTapped: root.mapHiddenDrawer = !root.mapHiddenDrawer
             }
             Item { width: Style.space(8); height: 1 }
             Text {
@@ -2386,103 +2405,6 @@ Panel {
             }
           }
 
-          // Hidden-items drawer — restore one-by-one or clear all
-          Rectangle {
-            width: parent.width
-            visible: root.glanceTab === "map" && root.mapHiddenDrawer
-            radius: Style.space(10)
-            color: Qt.alpha(Color.accent, 0.08)
-            border.width: 1
-            border.color: Qt.alpha(Color.accent, 0.40)
-            implicitHeight: hiddenDrawerCol.implicitHeight + Style.space(16)
-            Column {
-              id: hiddenDrawerCol
-              anchors.fill: parent
-              anchors.margins: Style.space(10)
-              spacing: Style.space(8)
-              RowLayout {
-                width: parent.width
-                spacing: Style.space(8)
-                Text {
-                  text: "Hidden on map"
-                  color: root.ink
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  font.bold: true
-                  Layout.fillWidth: true
-                  Layout.alignment: Qt.AlignVCenter
-                }
-                SegBtn {
-                  label: "Show all"
-                  active: false
-                  onTapped: root.unhideAllMap()
-                }
-                SegBtn {
-                  label: "Close"
-                  active: false
-                  onTapped: root.mapHiddenDrawer = false
-                }
-              }
-              Text {
-                visible: root.mapHiddenEntries().length === 0
-                width: parent.width
-                text: "Nothing hidden — Hide on map from a card’s detail strip (or press h)."
-                color: root.muted
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.Wrap
-              }
-              Repeater {
-                model: root.mapHiddenEntries()
-                delegate: Rectangle {
-                  required property var modelData
-                  width: hiddenDrawerCol.width
-                  height: Style.space(32)
-                  radius: Style.space(8)
-                  color: Qt.alpha(root.statusColor(String(modelData.status || "unknown")), 0.14)
-                  border.width: 1
-                  border.color: Qt.alpha(root.statusColor(String(modelData.status || "unknown")), 0.55)
-                  RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Style.space(10)
-                    anchors.rightMargin: Style.space(8)
-                    spacing: Style.space(8)
-                    Text {
-                      text: root.statusGlyph(String(modelData.status || "unknown"))
-                      color: root.statusColor(String(modelData.status || "unknown"))
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.bodySmall
-                    }
-                    Text {
-                      text: String(modelData.label || modelData.id || "")
-                      color: root.ink
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.bodySmall
-                      font.bold: true
-                      elide: Text.ElideRight
-                      Layout.fillWidth: true
-                    }
-                    Text {
-                      text: String(modelData.kind || "").toUpperCase()
-                      color: root.inkDim
-                      font.family: root.fontFamily
-                      font.pixelSize: 9
-                      font.letterSpacing: 0.8
-                    }
-                    SegBtn {
-                      label: "Show"
-                      active: false
-                      onTapped: {
-                        root.toggleMapHidden(String(modelData.id || ""))
-                        if (root.mapHiddenCount() === 0) root.mapHiddenDrawer = false
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-
           Rectangle {
             width: parent.width
             visible: root.glanceTab === "map"
@@ -2506,7 +2428,7 @@ Panel {
                   if (!root.mapSelectedId) return "Click a machine, the Caddy hub, a service, or the LAN cluster"
                   var row = root.glanceRowById(root.mapSelectedId)
                   if (!row) return root.mapSelectedId
-                  if (row.id === "__lan__") return row.metric + " · click the cluster to open leftovers in List"
+                  if (row.id === "__lan__") return row.metric + " · List → LAN to Show demoted cards back onto the map"
                   var metric = row.members ? root.serviceMetric(row) : root.machineMetric(row)
                   return String(row.label || row.id) + " · " + String(row.status) + " · " + metric
                 }
@@ -2520,7 +2442,7 @@ Panel {
                   onTapped: root.toggleNotifyForNodeId(root.mapSelectedId)
                 }
                 SegBtn {
-                  label: root.mapHiddenForId(root.mapSelectedId) ? "Show on map" : "Hide on map"
+                  label: root.mapHiddenForId(root.mapSelectedId) ? "Show on map" : "Move to LAN"
                   active: root.mapHiddenForId(root.mapSelectedId)
                   onTapped: root.toggleMapHidden(root.mapSelectedId)
                 }
@@ -2645,16 +2567,46 @@ Panel {
                 title: "LAN"
                 width: parent.width
               }
+              Row {
+                visible: root.showLan && root.mapHiddenCount() > 0
+                width: parent.width
+                spacing: Style.space(8)
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.mapHiddenCount() + " demoted from map"
+                  color: root.inkDim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+                SegBtn {
+                  label: "Show all on map"
+                  active: false
+                  onTapped: root.unhideAllMap()
+                }
+              }
               Repeater {
-                model: root.showLan ? root.quietLan : []
-                MeshRow {
+                model: root.showLan ? root.lanBucketRows() : []
+                RowLayout {
                   required property var modelData
                   width: parent.width
-                  nodeId: root.sparklineIdFor(modelData)
-                  label: String(modelData.label || modelData.id || "")
-                  status: String(modelData.status || "unknown")
-                  metric: root.rttText(modelData)
-                  hoverTip: root.listRowTooltip(modelData)
+                  spacing: Style.space(8)
+                  height: Style.space(22)
+                  MeshRow {
+                    Layout.fillWidth: true
+                    nodeId: root.sparklineIdFor(modelData)
+                    label: String(modelData.label || modelData.id || "")
+                      + (root.mapHiddenForId(modelData.id) ? " · demoted" : "")
+                    status: String(modelData.status || "unknown")
+                    metric: modelData.members ? root.serviceMetric(modelData) : root.rttText(modelData)
+                    lights: modelData.members ? root.serviceLights(modelData) : []
+                    hoverTip: root.listRowTooltip(modelData)
+                  }
+                  SegBtn {
+                    visible: root.mapHiddenForId(modelData.id)
+                    label: "Show"
+                    active: false
+                    onTapped: root.toggleMapHidden(String(modelData.id || ""))
+                  }
                 }
               }
 
@@ -2691,8 +2643,8 @@ Panel {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             text: root.glanceTab === "map"
-                ? "click LAN cluster for leftovers · arrows select · Enter notify · m list"
-                : "LAN / PROXIES toggle leftovers · m map · r refresh · s setup"
+                ? "Move to LAN / Show on map · click LAN cluster · m list"
+                : "LAN bucket holds leftovers + demoted · Show restores · m map · r refresh"
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.3.6-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.7-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Config: `~/.config/omarchy/plugins/homelab-mesh/`  
@@ -94,8 +94,8 @@ cp unifi-secrets.json.example ~/.config/omarchy/plugins/homelab-mesh/unifi-secre
 | List / Map | Tabs or `l` / `m` |
 | Leftover LAN / proxies | `LAN N` / `PROXIES` or `n` / `p` |
 | Map quiet (hide healthy services) | `ISSUES` chip or `q` — still probes everything |
-| Hide selected map card | Detail **Hide on map** or `h` — persists as `mapHidden` |
-| Restore hidden cards | `HIDDEN` chip opens a drawer (Show / Show all) |
+| Hide / demote selected card | Detail **Move to LAN** or `h` — card joins the LAN bucket (still probed) |
+| Restore to main map | List → **LAN** → **Show** (or **Show all on map**) |
 | Refresh | `r` |
 | Setup | `⚙ Setup` or `s` |
 | Map select / notify | Arrows · Enter toggles ALERT/MUTE |

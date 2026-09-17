@@ -3,6 +3,11 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.7 — 2026-09-17
+
+- **Move to LAN** demotes a map card into the LAN bucket (cluster + List → LAN); **Show** brings it back
+- Removed the separate HIDDEN drawer — LAN is the only hide/show bucket
+
 ## 0.3.6 — 2026-09-17
 
 - Map edges hub on the **reverse proxy** (Caddy), not the UniFi router; WAN lines still cross the router bar
