@@ -66,6 +66,8 @@ Panel {
   property var lanMeta: ({})
   property var unifi: ({})
   property var discover: []
+  property var events: []
+  property var flaps: ({})
   property var invSettings: ({})
   property string actionStatus: ""
   property bool findHostsBusy: false
@@ -895,6 +897,37 @@ Panel {
 
   // "MACHINE" on every card says nothing. Say what the box actually runs, and
   // mark a guess as a guess: a TTL of 64 cannot tell Linux from macOS.
+  function agoText(iso) {
+    var then = Date.parse(String(iso || ""))
+    if (!isFinite(then)) return ""
+    var secs = Math.max(0, Math.floor((Date.now() - then) / 1000))
+    if (secs < 60) return secs + "s"
+    if (secs < 3600) return Math.floor(secs / 60) + "m"
+    if (secs < 86400) return Math.floor(secs / 3600) + "h"
+    return Math.floor(secs / 86400) + "d"
+  }
+
+  function nodeLabelById(id) {
+    var row = root.glanceRowById(id)
+    if (row && row.label) return String(row.label)
+    for (var i = 0; i < root.nodes.length; i++)
+      if (String(root.nodes[i].id) === String(id)) return String(root.nodes[i].label || id)
+    return String(id)
+  }
+
+  // A box that bounces is not the same as a box that is down, and the events
+  // ring already knew. Anything above this in an hour is unstable, not unlucky.
+  readonly property int flapThreshold: 4
+
+  readonly property var flapping: {
+    var out = []
+    for (var id in root.flaps)
+      if (Number(root.flaps[id]) >= root.flapThreshold)
+        out.push({ id: id, count: Number(root.flaps[id]) })
+    out.sort(function (a, b) { return b.count - a.count })
+    return out
+  }
+
   function osSubline(row) {
     var os = row && row.os ? row.os : null
     if (!os) return "machine"
@@ -1095,6 +1128,8 @@ Panel {
     root.lanMeta = data.lan_meta && typeof data.lan_meta === "object" ? data.lan_meta : {}
     root.unifi = data.unifi && typeof data.unifi === "object" ? data.unifi : {}
     root.discover = data.discover instanceof Array ? data.discover : []
+    root.events = data.events instanceof Array ? data.events : []
+    root.flaps = data.flaps && typeof data.flaps === "object" ? data.flaps : ({})
     root.error = ""
     root.loading = false
     if (root.opened) {
@@ -3136,14 +3171,90 @@ Panel {
               anchors.fill: parent
               anchors.margins: Style.space(8)
               spacing: Style.space(6)
+              // Nothing selected: this space used to hold an instruction, which
+              // is the least useful thing a dashboard can show. It now answers
+              // the question you actually opened the panel for.
+              Column {
+                width: parent.width
+                spacing: Style.space(4)
+                visible: root.mapSelectedId === ""
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  Text {
+                    text: "RECENT"
+                    color: root.muted
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                    font.letterSpacing: 1.2
+                  }
+                  Text {
+                    visible: root.flapping.length > 0
+                    text: {
+                      var f = root.flapping[0]
+                      return "unstable: " + root.nodeLabelById(f.id) + " flapped " + f.count + "x in the last hour"
+                    }
+                    color: root.themeYellow
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                  Text {
+                    visible: root.flapping.length === 0 && root.events.length === 0
+                    text: "no status changes recorded yet"
+                    color: root.muted
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+
+                Repeater {
+                  model: root.events
+                  delegate: Row {
+                    id: eventRow
+                    required property var modelData
+                    width: parent.width
+                    spacing: Style.space(6)
+                    Text {
+                      width: Style.space(34)
+                      horizontalAlignment: Text.AlignRight
+                      text: root.agoText(eventRow.modelData.ts)
+                      color: root.muted
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                    Text {
+                      text: String(eventRow.modelData.to) === "up" ? "▲" : "▼"
+                      color: String(eventRow.modelData.to) === "up" ? root.themeGreen : root.urgent
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                    Text {
+                      text: root.nodeLabelById(eventRow.modelData.id)
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                    Text {
+                      text: String(eventRow.modelData.from) + " → " + String(eventRow.modelData.to)
+                      color: root.muted
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                  }
+                }
+              }
+
               Text {
                 width: parent.width
-                color: root.mapSelectedId ? root.foreground : root.muted
+                visible: root.mapSelectedId !== ""
+                color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.Wrap
                 text: {
-                  if (!root.mapSelectedId) return "Click a machine, the Caddy hub, a service, or the LAN cluster"
+                  if (!root.mapSelectedId) return ""
                   var row = root.glanceRowById(root.mapSelectedId)
                   if (!row) return root.mapSelectedId
                   if (row.id === "__lan__") return row.metric + " · List → LAN to Show demoted cards back onto the map"
@@ -3364,7 +3475,7 @@ Panel {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             text: root.glanceTab === "map"
-                ? "Move to LAN / Show on map · click LAN cluster · m list"
+                ? "Arrows select · Enter mutes · h moves to LAN · a toggles Flow · m list"
                 : "LAN bucket = leftovers + demoted · Show restores · m map · r refresh"
             color: root.muted
             font.family: root.fontFamily

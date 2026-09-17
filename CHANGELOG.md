@@ -3,6 +3,31 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.6.0 - 2026-09-17
+
+- **Real machines stop hiding in the LAN bucket.** A candidate was only ever
+  classed `machine` if it advertised `_ssh`, `_sftp-ssh` or `_workstation` over
+  mDNS. Arch and Omarchy do not publish `_ssh` by default, so a Linux laptop
+  running sshd was demoted to `host` and buried in the LAN cluster. Discovery now
+  asks the address directly: anything answering on 22 or 3389 is a machine,
+  which is the plugin's own definition of one. Speakers and TVs answer neither,
+  so they stay hosts
+- **Scan gets real host names.** Three sources now, in order: the mDNS host
+  field, reverse DNS, and `hostname -s` over SSH for any box whose key we already
+  hold. On a test LAN that took named machines from 3 of 11 to 8 of 11. Discovery
+  uses a throwaway known-hosts file so scanning a subnet never writes to
+  `~/.ssh/known_hosts`
+- Port verdicts and SSH names are cached per address for 15 minutes, so the
+  enrichment costs nothing on repeat scans
+- **The map detail pane holds information instead of an instruction.** With
+  nothing selected it was a large box reading "Click a machine, the Caddy hub, a
+  service, or the LAN cluster" - and still named a node removed in 0.5.0. It now
+  shows the last six status transitions with relative times, and calls out any
+  node that flapped 4 or more times in the past hour
+- `snapshot.json` carries `events[]` and `flaps{}`. The events ring already
+  recorded every flap; nothing had ever surfaced it, so a box bouncing every few
+  minutes looked exactly like a healthy one
+
 ## 0.5.0 - 2026-09-17
 
 - **Cards say what the box runs.** `MACHINE` on every card carried no information;

@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.5.0-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.0-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -115,12 +115,19 @@ Rebuilds `snapshot.discover[]` from three sources and merges them:
 | **mDNS** | `avahi-browse` (`_ssh`, `_home-assistant`, …) | `machine` or `host` from service type |
 | **ARP** | `ip neigh` with a MAC, named by reverse DNS (PTR) when the LAN answers | `host` fallback |
 
+**What makes something a `machine`:** it answers on a login port (22 or 3389), or
+mDNS says so. mDNS alone is not enough, because plenty of real boxes never publish
+`_ssh` while plenty of appliances publish service records that look host-like.
+
 Known inventory (ids, dns, labels, static ip/mac) is filtered out. History MAC/IP counts only for **`machine`** nodes so reverse-proxied hosts do not hide the real Caddy box. UniFi machines win over mDNS/neigh for the same device; machines list first.
 
 Adding a UniFi machine prefers a `.lan` DNS guess plus IP/MAC — lab DNS, not raw typing.
 
-Names are resolved for you: ARP addresses get a PTR lookup, so Setup offers `deba`
-rather than `10.0.0.5`. Synthetic resolver answers (`_gateway`, `localhost`) are
+Names are resolved for you, from three sources in order: the mDNS host field,
+reverse DNS (PTR), then `hostname -s` over SSH for any box whose key you already
+hold. So Setup offers `deba` rather than `10.0.0.5`. Scanning never writes to your
+`~/.ssh/known_hosts`. For everything else, a UniFi API key is the best name source
+on a UniFi LAN, since the gateway already knows every client by name. Synthetic resolver answers (`_gateway`, `localhost`) are
 rejected, mDNS pairing ids fall back to the resolved host name, and a box on both
 wifi and ethernet is offered once, not twice.
 

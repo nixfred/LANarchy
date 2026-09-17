@@ -145,6 +145,45 @@ def append_probe_sample(
     return str(prev) if prev is not None else None
 
 
+def recent_events(history: dict, limit: int = 6) -> list[dict]:
+    """Newest-first status transitions, for a "what just changed" strip.
+
+    The events ring already records every flap; nothing surfaced it, so a box
+    bouncing up and down every few minutes looked identical to a healthy one.
+    """
+    events = history.get("events") if isinstance(history, dict) else None
+    if not isinstance(events, list):
+        return []
+    rows = [e for e in events if isinstance(e, dict) and e.get("id") and e.get("to")]
+    rows.sort(key=lambda e: str(e.get("ts") or ""), reverse=True)
+    return [
+        {
+            "ts": str(e.get("ts") or ""),
+            "id": str(e.get("id") or ""),
+            "from": str(e.get("from") or "unknown"),
+            "to": str(e.get("to") or "unknown"),
+        }
+        for e in rows[: max(0, int(limit))]
+    ]
+
+
+def flap_counts(history: dict, within_hours: float = 1.0) -> dict[str, int]:
+    """Transitions per node in the recent window. A high count is instability."""
+    events = history.get("events") if isinstance(history, dict) else None
+    if not isinstance(events, list):
+        return {}
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=float(within_hours))
+    counts: dict[str, int] = {}
+    for e in events:
+        if not isinstance(e, dict) or not e.get("id"):
+            continue
+        when = _parse_ts(str(e.get("ts") or ""))
+        if when is None or when < cutoff:
+            continue
+        counts[str(e["id"])] = counts.get(str(e["id"]), 0) + 1
+    return counts
+
+
 def save_history(history: dict, path: Path | None = None) -> Path:
     return atomic_write_json(path or history_path(), history, indent=None)
 

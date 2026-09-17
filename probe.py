@@ -16,6 +16,8 @@ from pathlib import Path
 
 from discover_lib import collect_discover, known_targets, merge_discover
 from history_lib import (
+    flap_counts,
+    recent_events,
     append_probe_sample,
     last_counters,
     load_history,
@@ -383,6 +385,8 @@ def _run_probe_locked(*, write_stdout: bool = True) -> dict:
         "lan_meta": meta,
         "unifi": unifi,
         "discover": merge_discover(found, unifi.get("discover") or [], known=known_targets(nodes, hist)),
+        "events": recent_events(hist, 6),
+        "flaps": flap_counts(hist, 1.0),
     }
     ts = payload["as_of"]
     for row in machines:

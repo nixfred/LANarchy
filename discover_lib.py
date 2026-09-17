@@ -57,10 +57,47 @@ _OPAQUE_LABEL = re.compile(
 REVERSE_DNS_WORKERS = 16
 REVERSE_DNS_TIMEOUT_S = 1.0
 
+# A "machine" is something you log into. mDNS cannot tell you that: plenty of
+# real boxes never publish _ssh (Arch and Omarchy do not by default), while a
+# Sonos speaker happily publishes _smb-adjacent services. Asking the port
+# directly is one socket and answers the actual question.
+LOGIN_PORTS = (22, 3389)          # ssh, rdp
+LOGIN_PROBE_TIMEOUT_S = 0.6
+LOGIN_PROBE_WORKERS = 24
+
+# Asking a box its own name is the most reliable name there is, and it is free
+# for any host whose key we already hold. Discovery must not write to
+# known_hosts while scanning a whole LAN, hence the throwaway known-hosts file.
+SSH_NAME_TIMEOUT_S = 3.0
+SSH_NAME_OPTS = (
+    "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=2",
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "LogLevel=ERROR",
+)
+
 _ESCAPE = re.compile(r"\\(\d{3})")
 _BRACKET_MAC = re.compile(r"\s*\[([0-9a-fA-F:]{17})\]\s*$")
 
 _cache: dict[str, Any] = {"ts": float("-inf"), "rows": []}
+
+# Port verdicts and SSH names are properties of a box, not of a scan, so they are
+# remembered for much longer than the candidate list itself. Without this, a
+# whole-LAN login probe plus SSH naming re-runs every discover and adds seconds
+# to a probe cycle.
+ENRICH_TTL_S = 900.0
+_login_cache: dict[str, tuple[float, bool]] = {}
+_name_cache: dict[str, tuple[float, str | None]] = {}
+
+
+def _fresh(entry: tuple[float, Any] | None, now: float) -> bool:
+    return entry is not None and (now - entry[0]) < ENRICH_TTL_S
+
+
+def reset_enrich_cache() -> None:
+    _login_cache.clear()
+    _name_cache.clear()
 
 
 def unescape(name: str) -> str:
@@ -124,6 +161,15 @@ def mdns_candidates(records: list[dict], mac_by_ip: dict[str, str]) -> list[dict
             }
         )
     return out
+
+
+_BARE_IPV4 = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+
+
+def is_meaningless_label(label: str | None) -> bool:
+    """An opaque pairing id or a bare address: identifies, but does not inform."""
+    s = str(label or "").strip()
+    return bool(s) and (is_opaque_label(s) or bool(_BARE_IPV4.match(s)))
 
 
 def is_opaque_label(label: str | None) -> bool:
@@ -192,6 +238,112 @@ def neigh_candidates(
                 "services": [],
             }
         )
+    return rows
+
+
+def port_open(ip: str, port: int, timeout_s: float = LOGIN_PROBE_TIMEOUT_S) -> bool:
+    try:
+        with socket.create_connection((str(ip), int(port)), timeout=timeout_s):
+            return True
+    except (OSError, ValueError, OverflowError):
+        return False
+
+
+def has_login_port(ip: str) -> bool:
+    """True when the address accepts ssh or rdp: a box someone logs into."""
+    for port in LOGIN_PORTS:
+        if port_open(ip, port):
+            return True
+    return False
+
+
+def ssh_hostname(ip: str) -> str | None:
+    """`hostname -s` over SSH, for a box we already have a key for.
+
+    BatchMode means no prompt and a fast failure when we do not, so this costs a
+    refused connection for strangers and yields a real name for our own fleet.
+    """
+    try:
+        proc = subprocess.run(
+            ["ssh", *SSH_NAME_OPTS, str(ip), "hostname -s"],
+            capture_output=True, text=True, timeout=SSH_NAME_TIMEOUT_S, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    name = (proc.stdout or "").strip().splitlines()
+    if not name:
+        return None
+    short = name[0].strip()
+    if not short or " " in short or is_opaque_label(short):
+        return None
+    return short
+
+
+def name_by_ssh(rows: list[dict]) -> list[dict]:
+    """Fill in host names for login-capable candidates that still have none."""
+    now = time.monotonic()
+    candidates = [
+        r for r in rows
+        if r.get("login") and r.get("ip") and not str(r.get("host") or "").strip()
+    ]
+
+    targets: list[dict] = []
+    resolved: list[tuple[dict, str | None]] = []
+    for row in candidates:
+        hit = _name_cache.get(str(row["ip"]))
+        if _fresh(hit, now):
+            resolved.append((row, hit[1]))
+        else:
+            targets.append(row)
+
+    if targets:
+        with ThreadPoolExecutor(max_workers=min(LOGIN_PROBE_WORKERS, len(targets))) as pool:
+            names = list(pool.map(lambda r: ssh_hostname(str(r["ip"])), targets))
+        for row, name in zip(targets, names):
+            _name_cache[str(row["ip"])] = (now, name)
+            resolved.append((row, name))
+
+    for row, name in resolved:
+        if not name:
+            continue
+        row["host"] = name
+        # A bare address is not a label once the box has told us its name.
+        if is_meaningless_label(str(row.get("label") or "")):
+            row["label"] = name
+    return rows
+
+
+def promote_logins(rows: list[dict]) -> list[dict]:
+    """Reclassify candidates as `machine` when they answer on a login port.
+
+    Runs once per Search, in parallel, only for rows not already machines and
+    only for rows that have an address. Leaves everything else untouched, so a
+    speaker that answers nothing stays a host.
+    """
+    now = time.monotonic()
+    candidates = [r for r in rows if str(r.get("type") or "") != "machine" and r.get("ip")]
+
+    # Serve what we already know, probe only the rest.
+    fresh: list[dict] = []
+    for row in candidates:
+        hit = _login_cache.get(str(row["ip"]))
+        if _fresh(hit, now):
+            if hit[1]:
+                row["type"] = "machine"
+                row["login"] = True
+        else:
+            fresh.append(row)
+
+    if fresh:
+        with ThreadPoolExecutor(max_workers=min(LOGIN_PROBE_WORKERS, len(fresh))) as pool:
+            verdicts = list(pool.map(lambda r: has_login_port(str(r["ip"])), fresh))
+        for row, is_login in zip(fresh, verdicts):
+            _login_cache[str(row["ip"])] = (now, is_login)
+            if is_login:
+                row["type"] = "machine"
+                row["login"] = True
     return rows
 
 
@@ -281,6 +433,6 @@ def collect_discover() -> list[dict]:
     mdns = mdns_candidates(parse_avahi(text), {n["ip"]: n["mac"] for n in neigh})
     taken = {c["ip"] for c in mdns}
     names = reverse_dns_map([n["ip"] for n in neigh if n["ip"] not in taken])
-    rows = mdns + neigh_candidates(neigh, taken, names)
+    rows = name_by_ssh(promote_logins(mdns + neigh_candidates(neigh, taken, names)))
     _cache.update(ts=now, rows=rows)
     return rows
