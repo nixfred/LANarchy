@@ -27,6 +27,7 @@ from history_lib import (
 from groups_lib import attach_status, group_nodes, leftover_rows
 from inventory_lib import load_inventory, probe_target
 from notify_lib import process_probe_glance
+from os_lib import identify
 from plugin_paths import (
     atomic_write_json,
     ensure_user_inventory,
@@ -62,10 +63,14 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
-def ping_host(host: str) -> tuple[str, float | None]:
-    """ICMP ping → (status, rtt_ms). unknown if probe can't run or DNS misses."""
+def ping_host(host: str) -> tuple[str, float | None, int | None]:
+    """ICMP ping → (status, rtt_ms, ttl). unknown if probe can't run or DNS misses.
+
+    The TTL is free here (it is in the reply line we already parse) and is the
+    cheapest OS family hint there is: 64 unix, 128 windows, 255 appliance.
+    """
     if not host:
-        return "unknown", None
+        return "unknown", None, None
     try:
         proc = subprocess.run(
             ["ping", "-c", "1", "-W", "1", host],
@@ -74,20 +79,27 @@ def ping_host(host: str) -> tuple[str, float | None]:
             timeout=PING_TIMEOUT_S + 1.0,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return "unknown", None
+        return "unknown", None, None
     out = (proc.stdout or "") + (proc.stderr or "")
     low = out.lower()
     if any(s in low for s in ("name or service not known", "temporary failure", "unknown host", "cannot resolve")):
-        return "unknown", None
+        return "unknown", None, None
     if proc.returncode != 0:
-        return "down", None
+        return "down", None, None
+    ttl = None
+    mt = re.search(r"\bttl[=\s]*(\d{1,3})", out, re.I)
+    if mt:
+        try:
+            ttl = int(mt.group(1))
+        except ValueError:
+            ttl = None
     m = re.search(r"time[=<]([0-9.]+)\s*ms", out, re.I)
     if not m:
-        return "up", None
+        return "up", None, ttl
     try:
-        return "up", float(m.group(1))
+        return "up", float(m.group(1)), ttl
     except ValueError:
-        return "up", None
+        return "up", None, ttl
 
 
 def check_tcp(host: str, port: int) -> str:
@@ -112,23 +124,29 @@ def check_http(url: str) -> str:
 def probe_rtt_node(node: dict) -> dict:
     host, _port, _url = probe_target(node)
     host = host or ""
-    status, rtt = ping_host(host)
-    return {
+    status, rtt, ttl = ping_host(host)
+    row = {
         "id": str(node.get("id") or host),
         "label": str(node.get("label") or node.get("id") or host),
         "host": host,
         "status": status,
         "rtt_ms": rtt,
     }
+    if ttl is not None:
+        row["ttl"] = ttl
+    return row
 
 
 def probe_machine_node(node: dict, hist: dict, ts_now: float) -> dict:
     """Ping plus SSH/local telemetry: link speed, throughput delta, uptime."""
     row = probe_rtt_node(node)
     if row["status"] != "up" or node.get("telemetry") is False:
+        # No telemetry hop, so TTL (when the host answered at all) is all there is.
+        row["os"] = identify(ttl=row.get("ttl"), role=node.get("role"))
         return row
     report = collect_machine(row["host"], node.get("sshUser"))
     if not report:
+        row["os"] = identify(ttl=row.get("ttl"), role=node.get("role"))
         return row
     link = primary_link(report)
     if link:
@@ -148,6 +166,13 @@ def probe_machine_node(node: dict, hist: dict, ts_now: float) -> dict:
     if rates:
         row["rates"] = rates
     row["_counters"] = {"rx_bytes": report.get("rx_bytes"), "tx_bytes": report.get("tx_bytes"), "ts_epoch": ts_now}
+    row["os"] = identify(
+        uname=report.get("uname_s"),
+        ttl=row.get("ttl"),
+        role=node.get("role"),
+    )
+    if report.get("uname_r"):
+        row["os"]["release"] = report["uname_r"]
     return row
 
 

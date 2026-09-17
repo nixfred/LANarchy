@@ -29,6 +29,7 @@ for i in /sys/class/net/*; do
 done
 tail -n +3 /proc/net/dev | sed 's/^/D /'
 sed 's/^/U /' /proc/uptime
+echo "O $(uname -s 2>/dev/null) $(uname -r 2>/dev/null)"
 if command -v ss >/dev/null 2>&1; then
   ss -tunH 2>/dev/null | sed 's/^/T /'
 fi
@@ -119,6 +120,8 @@ def parse_machine_report(text: str) -> dict[str, Any]:
     counters: dict[str, dict] = {}
     talker_lines: list[str] = []
     uptime = None
+    uname_s = ""
+    uname_r = ""
     for raw in (text or "").splitlines():
         line = raw.strip()
         if line.startswith("L "):
@@ -147,6 +150,11 @@ def parse_machine_report(text: str) -> dict[str, Any]:
                 uptime = None
         elif line.startswith("T "):
             talker_lines.append(line)
+        elif line.startswith("O "):
+            parts = line.split(None, 2)
+            if len(parts) >= 2:
+                uname_s = parts[1]
+                uname_r = parts[2] if len(parts) > 2 else ""
     active = {l["iface"] for l in links}
     rx = sum(c["rx"] for n, c in counters.items() if n in active)
     tx = sum(c["tx"] for n, c in counters.items() if n in active)
@@ -156,6 +164,10 @@ def parse_machine_report(text: str) -> dict[str, Any]:
         "tx_bytes": tx if active else None,
         "uptime_s": uptime,
     }
+    if uname_s:
+        out["uname_s"] = uname_s
+        if uname_r:
+            out["uname_r"] = uname_r
     talkers = parse_ss_talkers("\n".join(talker_lines))
     if talkers:
         out["talkers"] = talkers

@@ -3,6 +3,25 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.5.0 - 2026-09-17
+
+- **Cards say what the box runs.** `MACHINE` on every card carried no information;
+  the slot now reads `LINUX`, `MACOS`, `WINDOWS`, `APPLIANCE` or `ROUTER`, with a
+  trailing `?` when it is inferred rather than known
+- OS identification adds no probes. `uname -s` rides the SSH telemetry hop we
+  already make, the ICMP TTL was already in the ping reply we already parse
+  (64 unix / 128 windows / 255 appliance), and Apple mDNS services are a strong
+  tell. Detail line shows the release and which source answered
+- `MACHINE` is still shown when nothing supports a claim, and a TTL of 64 yields
+  `UNIX?` rather than guessing between Linux and macOS
+- Notifications name something you can act on: a label that is a UUID, a MAC, a
+  bare address or a Sonos `RINCON_` id falls back to the node's dns name, and the
+  body carries the address
+- Starter inventory no longer ships a Caddy health check against
+  `127.0.0.1:2019`. Caddy is usually not installed, so a fresh install showed a
+  permanent `1 DOWN` and, because that node is the map hub, painted every edge
+  red. A fresh install is now one node and green
+
 ## 0.4.1 - 2026-09-17
 
 - **The map's traffic is measured, not decorative.** Packet count, speed and

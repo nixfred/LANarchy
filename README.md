@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.4.1-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -130,6 +130,25 @@ on a busy LAN includes TVs and phones, so it is the deliberate option rather tha
 the recommended one.
 
 Without UniFi secrets, Search still runs mDNS + ARP with weaker names.
+
+---
+
+## Knowing what a box is
+
+The machine card's top line names the platform instead of repeating the word
+"machine". Nothing extra is probed to work it out:
+
+| Source | Gives | Confidence |
+|--------|-------|------------|
+| `uname -s` over the telemetry hop | exact family plus release | certain |
+| Apple mDNS services (`_companion-link`, `_airplay`, ...) | macOS | likely |
+| UniFi `os_name` | family | likely |
+| ICMP TTL in the ping reply (64 / 128 / 255) | `UNIX` / `WINDOWS` / `APPLIANCE` | guess, shown with `?` |
+
+A TTL of 64 cannot separate Linux from macOS, so it reports `UNIX?` rather than
+picking one. With no evidence the card says `MACHINE`.
+
+Set `"role": "router"` on a node to label it `ROUTER` outright.
 
 ---
 

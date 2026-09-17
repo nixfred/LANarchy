@@ -893,6 +893,26 @@ Panel {
     return out
   }
 
+  // "MACHINE" on every card says nothing. Say what the box actually runs, and
+  // mark a guess as a guess: a TTL of 64 cannot tell Linux from macOS.
+  function osSubline(row) {
+    var os = row && row.os ? row.os : null
+    if (!os) return "machine"
+    var label = String(os.label || "machine")
+    if (String(os.confidence || "") === "guess") return label + "?"
+    return label
+  }
+
+  function osDetail(row) {
+    var os = row && row.os ? row.os : null
+    if (!os || String(os.family || "unknown") === "unknown") return ""
+    var out = String(os.label || "")
+    if (os.release) out += " " + String(os.release)
+    var src = String(os.source || "")
+    if (src && src !== "inventory") out += " (via " + src + ")"
+    return out
+  }
+
   function recalcMapLayout() {
     if (!mapArea || mapArea.width <= 0) return
     var w = mapArea.width
@@ -920,10 +940,11 @@ Panel {
       layout.push({
         id: String(row.id || ""),
         label: String(row.label || row.id || ""),
-        subline: subline,
+        subline: typeof subline === "function" ? subline(row) : subline,
         status: root.displayStatus(row),
         rtt_ms: row.rtt_ms,
         rates: row.rates || null,
+        os: row.os || null,
         x: x,
         y: y,
         w: wCard,
@@ -950,7 +971,7 @@ Panel {
     }
 
     var machines = root.internalMachines(router)
-    colBand(machines, "machine", Style.space(28), "machine", root.machineMetric, null, 0, leftW)
+    colBand(machines, root.osSubline, Style.space(28), "machine", root.machineMetric, null, 0, leftW)
 
     // Prefer redUltra on the router bar; only fall back to Caddy there when no router machine.
     // Never place the same hub id twice (left gateway + bar).
@@ -3127,7 +3148,10 @@ Panel {
                   if (!row) return root.mapSelectedId
                   if (row.id === "__lan__") return row.metric + " · List → LAN to Show demoted cards back onto the map"
                   var metric = row.members ? root.serviceMetric(row) : root.machineMetric(row)
-                  return String(row.label || row.id) + " · " + String(row.status) + " · " + metric
+                  var line = String(row.label || row.id) + " · " + String(row.status) + " · " + metric
+                  var os = root.osDetail(row)
+                  if (os) line += " · " + os
+                  return line
                 }
               }
               Row {
