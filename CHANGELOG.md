@@ -3,6 +3,21 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.8.1 - 2026-09-17
+
+- **The map wraps instead of cramming, and the panel grows to fit it.** Cards were
+  spread evenly across one row and then refused to shrink below a readable width,
+  so past about six machines every card overlapped its neighbour. Capacity now
+  comes from the available width and the band wraps; everything below it flows
+  from where that band actually ended
+- The popup no longer caps itself at 760 scaled pixels. The host already clamps to
+  the space the screen has, so the cap only made the panel clip its own content on
+  a display with room to spare. It scrolls in one case only: content taller than
+  the screen itself
+- The notify chip appears only when a node is **muted**. "ALERT" on every card
+  stated the default while consuming half the width of a narrow card, which forced
+  the platform line to elide to "LINUX..."
+
 ## 0.8.0 - 2026-09-17
 
 - **The network fills the map; the inventory only records your overrides.** A

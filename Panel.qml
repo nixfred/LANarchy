@@ -406,6 +406,8 @@ Panel {
 
   readonly property int mapLanCap: 12
   readonly property int mapCardH: Style.space(94)
+  // What recalcMapLayout says the map needs; the popup follows it.
+  property real mapContentHeight: Style.space(460)
   property real mapSplitX: 0
   property real mapBarWidth: 0
   property bool mapHasExternal: false
@@ -1054,22 +1056,40 @@ Panel {
         zone: String(row.zone || "")
       })
     }
+    // Wrap instead of cram. The old maths spaced n cards evenly across the band
+    // and then refused to shrink a card below a readable width, so past roughly
+    // six machines every card overlapped its neighbour. Capacity now comes from
+    // the available width, and the band grows downwards, which is what the
+    // panel is sized from.
     function colBand(rows, subline, y, kind, metricFn, lightsFn, colX, colW) {
       var n = rows.length
-      if (n <= 0) return
-      var gap = colW / (n + 1)
-      var cw = Math.max(Style.space(88), Math.min(cardW, gap - Style.space(6)))
-      var i, row
+      if (n <= 0) return y
+      var minW = Style.space(88)
+      var gapX = Style.space(8)
+      var gapY = Style.space(10)
+      var perRow = Math.max(1, Math.floor((colW + gapX) / (minW + gapX)))
+      var rowsUsed = Math.ceil(n / perRow)
+      // Spread the cards evenly rather than leaving a ragged last row.
+      var columns = Math.max(1, Math.ceil(n / rowsUsed))
+      var cw = Math.max(minW, Math.min(cardW, (colW - gapX * (columns - 1)) / columns))
+      var spanW = cw * columns + gapX * (columns - 1)
+      var startX = colX + Math.max(0, (colW - spanW) / 2)
+      var i, row, r, c
       for (i = 0; i < n; i++) {
         row = rows[i]
-        place(row, subline, colX + gap * (i + 1) - cw / 2, y, cw, cardH, kind,
+        r = Math.floor(i / columns)
+        c = i % columns
+        place(row, subline, startX + c * (cw + gapX), y + r * (cardH + gapY),
+              cw, cardH, kind,
               metricFn ? metricFn(row) : root.rttText(row),
               lightsFn ? lightsFn(row) : [])
       }
+      return y + rowsUsed * cardH + (rowsUsed - 1) * gapY
     }
 
     var machines = root.internalMachines(router)
-    colBand(machines, root.osSubline, Style.space(28), "machine", root.machineMetric, null, 0, leftW)
+    var machineBandBottom = colBand(machines, root.osSubline, Style.space(28), "machine",
+                                    root.machineMetric, null, 0, leftW)
 
     // Prefer redUltra on the router bar; only fall back to Caddy there when no router machine.
     // Never place the same hub id twice (left gateway + bar).
@@ -1092,21 +1112,31 @@ Panel {
       }
     }
 
+    // Everything below the machines flows from wherever that band actually
+    // ended, so a wrapped row pushes the rest down instead of being drawn over.
+    var cursorY = machineBandBottom + Style.space(26)
+
     if (hub && !hubOnRouterBar && String(hub.zone || "") !== "external") {
       var hubW = Style.space(120)
       var hubH = Style.space(100)
-      place(hub, "reverse proxy", (leftW - hubW) / 2, Style.space(132), hubW, hubH, "hub",
+      place(hub, "reverse proxy", (leftW - hubW) / 2, cursorY, hubW, hubH, "hub",
             root.serviceMetric(hub), root.serviceLights(hub))
+      cursorY += hubH + Style.space(26)
     }
 
     var svcs = root.internalGroups(hub)
-    colBand(svcs, "service", Style.space(250), "service", root.serviceMetric, root.serviceLights, 0, leftW)
+    if (svcs.length) {
+      cursorY = colBand(svcs, "service", cursorY, "service", root.serviceMetric,
+                        root.serviceLights, 0, leftW) + Style.space(26)
+    }
 
     if (root.lanBucketRows().length && root.mapRowVisible(root.lanClusterRow(), "lan")) {
       var cluster = root.lanClusterRow()
       var clusterW = Math.min(Style.space(280), leftW - Style.space(20))
-      place(cluster, "LAN bucket", (leftW - clusterW) / 2, Style.space(360),
-            clusterW, Style.space(72), "lan", cluster.metric, cluster.lights)
+      var clusterH = Style.space(72)
+      place(cluster, "LAN bucket", (leftW - clusterW) / 2, cursorY,
+            clusterW, clusterH, "lan", cluster.metric, cluster.lights)
+      cursorY += clusterH
     }
 
     if (root.wan) {
@@ -1129,6 +1159,13 @@ Panel {
               root.serviceMetric(row), root.serviceLights(row))
       }
     }
+    // The panel is sized from this: the map asks for the height it needs and
+    // the popup grows to fit, rather than clipping content into a fixed box.
+    var lowest = 0
+    for (var li = 0; li < layout.length; li++)
+      lowest = Math.max(lowest, layout[li].y + layout[li].h)
+    root.mapContentHeight = Math.max(Style.space(300), lowest + Style.space(24))
+
     root.mapLayout = layout
     if (edgeCanvas) edgeCanvas.requestPaint()
   }
@@ -2367,7 +2404,10 @@ Panel {
     }
 
     Rectangle {
-      visible: !mapBox.isLan
+      // Only the exception is worth a chip. Every card carrying "ALERT" said
+      // nothing (it is the default) while eating half the width of a narrow
+      // card, so the platform line had to elide to "LINUX...".
+      visible: !mapBox.isLan && !mapBox.notifyOn
       anchors.top: parent.top
       anchors.right: parent.right
       anchors.margins: Style.space(8)
@@ -2414,7 +2454,10 @@ Panel {
       spacing: Style.space(3)
 
       Text {
-        width: parent.width
+        // The notify chip floats over the top-right of the card, so the
+        // platform line must reserve its width or the two overprint.
+        width: Math.max(Style.space(24),
+                        parent.width - (mapBox.notifyOn || mapBox.isLan ? 0 : Style.space(52)))
         text: subline.toUpperCase()
         color: root.inkDim
         font.family: root.fontFamily
@@ -2765,7 +2808,10 @@ Panel {
         ? Border.flat(Color.accent, 2) : Border.none()
     contentWidth: panel.fittedContentWidth(root.view === "glance" && root.glanceTab === "map"
         ? Style.space(1280) : Style.space(560))
-    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(760))
+    // No artificial cap: fittedContentHeight already clamps to the space the
+    // screen actually has. Capping at 760 made the panel clip its own content
+    // on a display with room to spare.
+    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight)
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -2790,12 +2836,27 @@ Panel {
         if (root.view === "glance" && root.glanceTab === "map") root.toggleNotifyForNodeId(root.mapSelectedId)
       }
 
+      // The panel grows to fit its content. This only ever scrolls when the
+      // content is taller than the screen itself, which is the one case where
+      // growing further is impossible.
+      Flickable {
+        id: panelScroll
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: contentColumn.implicitHeight
+        interactive: contentHeight > height + 1
+        boundsBehavior: Flickable.StopAtBounds
+        clip: interactive
+        ScrollBar.vertical: ScrollBar {
+          policy: panelScroll.interactive ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+          width: 6
+        }
+
       Item {
         id: contentColumn
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
+        width: panelScroll.width
         implicitHeight: glanceBody.implicitHeight
+        height: implicitHeight
 
         Rectangle {
           anchors.fill: parent
@@ -3060,7 +3121,8 @@ Panel {
             Rectangle {
             id: mapArea
             width: parent.width
-            height: Style.space(460)
+            // Grow to whatever the topology needs; the popup grows with it.
+            height: Math.max(Style.space(300), root.mapContentHeight)
             visible: root.glanceTab === "map"
             radius: Style.space(14)
             color: Color.popups.background
@@ -4269,6 +4331,7 @@ Panel {
           }
         }
         }
+      }
       }
     }
   }
