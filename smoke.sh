@@ -62,6 +62,34 @@ assert isinstance(rows, list)
 print("discover candidates", len(rows))
 PY
 
+echo "== user state seeds from the shipped default"
+[[ -f inventory.default.json ]] || { echo "missing inventory.default.json"; exit 1; }
+if git ls-files --error-unmatch inventory.json >/dev/null 2>&1; then
+  echo "inventory.json must stay untracked (plugin update would conflict with an edited lab)"
+  exit 1
+fi
+python3 - <<'PY_SEED'
+import json, shutil, tempfile
+from pathlib import Path
+import plugin_paths
+
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td)
+    shutil.copy("inventory.default.json", tmp / "inventory.default.json")
+    original = plugin_paths.plugin_config_dir
+    plugin_paths.plugin_config_dir = lambda: tmp
+    try:
+        live = plugin_paths.ensure_user_inventory()
+        assert live.is_file(), "first run must seed inventory.json"
+        assert json.loads(live.read_text())["schemaVersion"] == 2
+        live.write_text(json.dumps({"schemaVersion": 2, "nodes": [{"id": "mine"}]}) + "\n")
+        plugin_paths.ensure_user_inventory()
+        assert json.loads(live.read_text())["nodes"][0]["id"] == "mine", "must never re-seed over user state"
+    finally:
+        plugin_paths.plugin_config_dir = original
+print("seed ok")
+PY_SEED
+
 echo "== required marketplace files"
 for f in manifest.json LICENSE README.md preview.png Panel.qml; do
   [[ -f $f ]] || { echo "missing $f"; exit 1; }

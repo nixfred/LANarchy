@@ -132,7 +132,7 @@ Inventory and sidecars live in the plugin install directory (`~/.config/omarchy/
 
 | File | Purpose |
 |------|---------|
-| `inventory.json` | v2 nodes + optional `settings` / `edges` |
+| `inventory.json` | v2 nodes + optional `settings` / `edges`. Seeded from the shipped `inventory.default.json` on first run and never tracked, so `omarchy plugin update` cannot conflict with your lab |
 | `history.json` | RTT sparklines / events |
 | `notify-state.json` | Fail streaks + unknown-neighbor mute |
 | `snapshot.json` | Last glance (daemon / probe) |
@@ -147,11 +147,27 @@ Useful `inventory.json` settings:
     "failStreakThreshold": 3,
     "unknownNeighborNotify": true,
     "unifi": { "url": "https://192.168.1.1", "site": "default" },
-    "speedtestUrl": "https://files.lan/"
+    "speedtestUrl": "https://files.lan/",
+    "homeGatewayMac": "02:00:5e:10:00:01",
+    "batteryIntervalSec": 300
   },
   "nodes": []
 }
 ```
+
+### Collector pace (laptops)
+
+The collector is gated so a closed panel is not a permanent background scan:
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `homeGatewayMac` | unset | When set and the current default gateway's MAC does not match, probing **pauses**. Keeps your lab's hostnames off coffee-shop wifi. Opening the panel probes anyway |
+| `batteryIntervalSec` | `300` | Probe interval on battery while the panel is closed |
+| `batteryBackoff` | `true` | `false` restores the old always-on pace |
+| `closedIntervalSec` | unset | Explicit panel-closed interval on mains |
+
+Open the panel and you always get the full `refreshIntervalSec` pace. A desktop with
+no battery and no `homeGatewayMac` behaves exactly as before.
 
 Empty inventory writes are refused. Setup/form saves go through `inventory_cli.py` only when you act — nothing silent.
 

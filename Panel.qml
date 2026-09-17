@@ -982,6 +982,12 @@ Panel {
     return parts.join(" · ")
   }
 
+  function syncFormFocus() {
+    // One place instead of an N² chain of onActiveFocusChanged handlers.
+    root.formFieldFocused = labelField.focused || dnsField.focused || ipField.focused
+        || urlField.focused || portField.focused
+  }
+
   function goSetup() {
     root.view = "setup"
     root.formConfirmDelete = false
@@ -1511,6 +1517,23 @@ Panel {
     onTriggered: {
       root.ensureDaemon()
       snapshotView.reload()
+    }
+  }
+
+  // The collector's probe gate reads this file's mtime: a fresh heartbeat means
+  // the panel is open, so probe at full pace even on battery.
+  Process { id: heartbeatProc }
+
+  Timer {
+    id: heartbeat
+    interval: 8000
+    running: root.opened
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: {
+      if (heartbeatProc.running) return
+      heartbeatProc.command = ["touch", root.pluginDir + "/.panel-heartbeat"]
+      heartbeatProc.running = true
     }
   }
 
@@ -2945,151 +2968,115 @@ Panel {
         }
 
         // ——— FORM ———
-        Flickable {
-          id: formScroll
+        // Law of the panel: every control on screen at once. Two columns, labels
+        // inline, never a scrolling settings form.
+        Column {
+          id: formCol
           width: parent.width
-          height: Math.min(Style.space(560), formCol.implicitHeight)
+          spacing: Style.space(10)
           visible: root.view === "form"
-          clip: true
-          boundsBehavior: Flickable.StopAtBounds
-          contentWidth: width
-          contentHeight: formCol.implicitHeight
-          interactive: contentHeight > height
-          ScrollBar.vertical: ScrollBar {
-            policy: formScroll.contentHeight > formScroll.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
-            width: 6
+
+          component Field: Column {
+            id: field
+            property string caption: ""
+            property alias text: input.text
+            property alias placeholder: input.placeholderText
+            property alias focused: input.activeFocus
+            property alias input: input
+            spacing: Style.space(3)
+            Text {
+              text: field.caption
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+            TextField {
+              id: input
+              width: field.width
+              onActiveFocusChanged: root.syncFormFocus()
+            }
           }
 
-          Column {
-            id: formCol
-            width: formScroll.width - (formScroll.contentHeight > formScroll.height ? 10 : 0)
-            spacing: Style.space(8)
-            visible: true
-
-          Text {
-            text: "Type"
-            color: root.muted
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
+          // Type + notify on one line (was two stacked rows)
           Row {
             spacing: Style.space(6)
             SegBtn { label: "machine"; active: root.formType === "machine"; onTapped: root.formType = "machine" }
             SegBtn { label: "host"; active: root.formType === "host"; onTapped: root.formType = "host" }
             SegBtn { label: "proxy"; active: root.formType === "proxy"; onTapped: root.formType = "proxy" }
-          }
-
-          Row {
-            spacing: Style.space(6)
+            Item { width: Style.space(10); height: 1 }
             SegBtn {
               label: root.formNotify ? "Notify on" : "Notify off"
               active: root.formNotify
               onTapped: root.formNotify = !root.formNotify
             }
-          }
-
-          Text {
-            text: "Label"
-            color: root.muted
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
-          TextField {
-            id: labelField
-            width: parent.width
-            text: root.formLabel
-            placeholderText: "required"
-            onTextChanged: root.formLabel = text
-            onActiveFocusChanged: root.formFieldFocused = activeFocus || dnsField.activeFocus || ipField.activeFocus || urlField.activeFocus || portField.activeFocus
-          }
-
-          Text {
-            visible: root.formType !== "proxy" || root.formCheck === "tcp"
-            text: "DNS"
-            color: root.muted
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
-          TextField {
-            id: dnsField
-            width: parent.width
-            visible: root.formType !== "proxy" || root.formCheck === "tcp"
-            text: root.formDns
-            placeholderText: "hostname.lan"
-            onTextChanged: root.formDns = text
-            onActiveFocusChanged: root.formFieldFocused = activeFocus || labelField.activeFocus || ipField.activeFocus || urlField.activeFocus || portField.activeFocus
-          }
-
-          Text {
-            visible: root.formType !== "proxy" || root.formCheck === "tcp"
-            text: "IP"
-            color: root.muted
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
-          TextField {
-            id: ipField
-            width: parent.width
-            visible: root.formType !== "proxy" || root.formCheck === "tcp"
-            text: root.formIp
-            placeholderText: "optional if DNS set"
-            onTextChanged: root.formIp = text
-            onActiveFocusChanged: root.formFieldFocused = activeFocus || labelField.activeFocus || dnsField.activeFocus || urlField.activeFocus || portField.activeFocus
-          }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(6)
-            visible: root.formType === "proxy"
-            Text {
-              text: "Check"
-              color: root.muted
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
+            Item { width: Style.space(10); height: 1 }
+            SegBtn {
+              visible: root.formType === "proxy"
+              label: "http"
+              active: root.formCheck === "http"
+              onTapped: root.formCheck = "http"
             }
-            Row {
-              spacing: Style.space(6)
-              SegBtn { label: "http"; active: root.formCheck === "http"; onTapped: root.formCheck = "http" }
-              SegBtn { label: "tcp"; active: root.formCheck === "tcp"; onTapped: root.formCheck = "tcp" }
+            SegBtn {
+              visible: root.formType === "proxy"
+              label: "tcp"
+              active: root.formCheck === "tcp"
+              onTapped: root.formCheck = "tcp"
             }
-            Text {
-              visible: root.formCheck === "http"
-              text: "URL"
-              color: root.muted
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
+          }
+
+          readonly property real colW: (formCol.width - Style.space(10)) / 2
+          readonly property bool addressable: root.formType !== "proxy" || root.formCheck === "tcp"
+
+          Row {
+            spacing: Style.space(10)
+            Field {
+              id: labelField
+              width: formCol.colW
+              caption: "Label"
+              placeholder: "required"
+              text: root.formLabel
+              onTextChanged: root.formLabel = text
             }
-            TextField {
+            Field {
+              id: dnsField
+              width: formCol.colW
+              visible: formCol.addressable
+              caption: "DNS"
+              placeholder: "hostname.lan"
+              text: root.formDns
+              onTextChanged: root.formDns = text
+            }
+            Field {
               id: urlField
-              width: parent.width
-              visible: root.formCheck === "http"
+              width: formCol.colW
+              visible: root.formType === "proxy" && root.formCheck === "http"
+              caption: "URL"
+              placeholder: "http://…"
               text: root.formUrl
-              placeholderText: "http://…"
               onTextChanged: root.formUrl = text
-              onActiveFocusChanged: root.formFieldFocused = activeFocus || labelField.activeFocus || dnsField.activeFocus || ipField.activeFocus || portField.activeFocus
             }
-            Text {
-              visible: root.formCheck === "tcp"
-              text: "Port"
-              color: root.muted
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
+          }
+
+          Row {
+            spacing: Style.space(10)
+            visible: formCol.addressable
+            Field {
+              id: ipField
+              width: formCol.colW
+              caption: "IP"
+              placeholder: "optional if DNS set"
+              text: root.formIp
+              onTextChanged: root.formIp = text
             }
-            TextField {
+            Field {
               id: portField
-              width: parent.width
-              visible: root.formCheck === "tcp"
+              width: formCol.colW
+              visible: root.formType === "proxy" && root.formCheck === "tcp"
+              caption: "Port"
+              placeholder: "443"
               text: root.formPort
-              placeholderText: "443"
               onTextChanged: root.formPort = text
-              onActiveFocusChanged: root.formFieldFocused = activeFocus || labelField.activeFocus || dnsField.activeFocus || ipField.activeFocus || urlField.activeFocus
             }
           }
 
@@ -3147,16 +3134,14 @@ Panel {
               }
               MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.deleteFormNode() }
             }
-          }
-
-          Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
-            text: "Esc back"
-            color: root.muted
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
+            Item { width: Style.space(8); height: 1 }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Esc back"
+              color: root.muted
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
           }
         }
         }

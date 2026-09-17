@@ -79,6 +79,35 @@ def inventory_path() -> Path:
     return plugin_config_dir() / "inventory.json"
 
 
+def default_inventory_path() -> Path:
+    """Repo-shipped starter. Tracked in git; never written to at runtime."""
+    return plugin_config_dir() / "inventory.default.json"
+
+
+def ensure_user_inventory() -> Path:
+    """Seed the user's inventory.json from the shipped default on first run.
+
+    inventory.json is user state and stays untracked, so `omarchy plugin update`
+    (a git pull) can never conflict with an edited lab or clobber it.
+    """
+    live = inventory_path()
+    if live.is_file():
+        return live
+    seed = default_inventory_path()
+    if not seed.is_file():
+        return live
+    try:
+        live.write_text(seed.read_text(encoding="utf-8"), encoding="utf-8")
+    except OSError:
+        pass
+    return live
+
+
+def panel_heartbeat_path() -> Path:
+    """Touched by the panel while it is open; read by the collector's probe gate."""
+    return plugin_config_dir() / ".panel-heartbeat"
+
+
 def history_path() -> Path:
     return plugin_config_dir() / "history.json"
 

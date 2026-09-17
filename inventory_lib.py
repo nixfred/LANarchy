@@ -13,7 +13,7 @@ NODE_TYPES = frozenset({"machine", "host", "proxy"})
 PROXY_CHECKS = frozenset({"http", "tcp"})
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_INVENTORY = HERE / "inventory.json"
+DEFAULT_INVENTORY = HERE / "inventory.json"  # seed with plugin_paths.ensure_user_inventory()
 
 
 def slugify(label: str) -> str:

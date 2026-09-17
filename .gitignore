@@ -24,7 +24,10 @@ sand-secrets.json
 *.db-wal
 *.db-shm
 
-# Runtime sidecars — repo ships default inventory.json; live state stays untracked
+# Runtime sidecars — repo ships inventory.default.json; live state stays untracked
+# inventory.json is seeded from the default on first run, so `omarchy plugin
+# update` (git pull) can never conflict with an edited lab.
+inventory.json
 inventory.local.json
 inventory.lab.json
 inventory.json.bak

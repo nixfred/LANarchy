@@ -27,7 +27,13 @@ from history_lib import (
 from groups_lib import attach_status, group_nodes, leftover_rows
 from inventory_lib import load_inventory, probe_target
 from notify_lib import process_probe_glance
-from plugin_paths import atomic_write_json, inventory_path, load_json_or, probe_lock, snapshot_path
+from plugin_paths import (
+    atomic_write_json,
+    ensure_user_inventory,
+    load_json_or,
+    probe_lock,
+    snapshot_path,
+)
 from unifi_lib import collect_unifi, fmt_mac
 from speedtest_lib import resolve_speedtest_url, run_speedtest
 from telemetry_lib import (
@@ -49,7 +55,7 @@ HTTP_TIMEOUT_S = 2.0
 
 
 def inventory_file() -> Path:
-    return inventory_path() if inventory_path().is_file() else HERE / "inventory.json"
+    return ensure_user_inventory()
 
 
 def now_iso() -> str:
