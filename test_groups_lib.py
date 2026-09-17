@@ -10,7 +10,7 @@ from inventory_lib import load_inventory, normalize_node
 
 
 def test_inventory_groups() -> None:
-    inv = load_inventory(Path(__file__).resolve().parent / "inventory.json")
+    inv = load_inventory(Path(__file__).resolve().parent / "fixtures" / "groups-inventory.json")
     dash = group_nodes(inv["nodes"])
     labels = [s["label"] for s in dash["services"]]
     keys = [s["key"] for s in dash["services"]]

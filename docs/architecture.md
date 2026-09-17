@@ -8,7 +8,7 @@ This document signs the sidecar formats that **5oy.2**, **5oy.3**, and **5oy.6**
 
 All user-writable state lives under:
 
-`~/.config/omarchy/plugins/homelab-mesh/`
+`~/.config/omarchy/plugins/<manifest.id>/` (e.g. `donnie.homelab-mesh`)
 
 | File | Purpose |
 |------|---------|
@@ -17,7 +17,7 @@ All user-writable state lives under:
 | `notify-state.json` | Ephemeral fail-streak counters (rebuilt from history on miss) |
 | `unifi-secrets.json` | Optional UniFi API key or user/pass. Never committed; never copied into inventory |
 
-Repo-shipped `homelab-mesh/inventory.json` is the default template copied on first enable.
+Repo-shipped `inventory.json` is a localhost starter that lives in the plugin install directory (same tree as `Panel.qml`). Sidecars (`snapshot.json`, `history.json`, …) are written next to it.
 
 ## Inventory v2 extension
 

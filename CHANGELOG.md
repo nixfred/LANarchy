@@ -3,6 +3,12 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.3.12 — 2026-09-17
+
+- Resolve plugin dir from install location (marketplace `donnie.homelab-mesh`), not a hardcoded `homelab-mesh` path
+- Ship a localhost starter `inventory.json` (lab mesh moved out of the default)
+- Refresh marketplace preview and README screenshots
+
 ## 0.3.11 — 2026-09-17
 
 - Visio-style orthogonal edges attach to card borders (not through centers)

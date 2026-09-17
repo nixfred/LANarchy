@@ -67,8 +67,12 @@ def probe_lock(timeout_s: float = 20.0) -> Iterator[bool]:
 
 
 def plugin_config_dir() -> Path:
-    home = Path(os.environ.get("HOME") or os.path.expanduser("~"))
-    return home / ".config" / "omarchy" / "plugins" / "homelab-mesh"
+    """Plugin install directory (marketplace: ~/.config/omarchy/plugins/<manifest.id>/).
+
+    Resolved from this file's location so marketplace checkouts and local
+    symlinks both work without hardcoding the directory name.
+    """
+    return Path(__file__).resolve().parent
 
 
 def inventory_path() -> Path:

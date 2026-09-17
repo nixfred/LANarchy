@@ -28,7 +28,14 @@ Panel {
   readonly property color themeYellow: root.themeColor("yellow", "#f9e2af")
   readonly property color themeRed: root.themeColor("red", "")
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
-  readonly property string pluginDir: Quickshell.env("HOME") + "/.config/omarchy/plugins/homelab-mesh"
+  // Install dir = directory that holds this Panel (marketplace id path or local symlink).
+  readonly property string pluginDir: {
+    var u = String(Qt.resolvedUrl("manifest.json"))
+    if (u.indexOf("file://") === 0)
+      u = u.replace(/^file:\/\/(localhost)?/, "")
+    var cut = u.lastIndexOf("/")
+    return cut >= 0 ? u.substring(0, cut) : u
+  }
   readonly property int refreshIntervalSec: {
     var n = parseInt(String(setting("refreshIntervalSec", 15)), 10)
     if (!isFinite(n)) n = 15

@@ -20,7 +20,7 @@ Before changing behaviour, read:
 
 Runtime install path (usually a symlink to this tree):
 
-`~/.config/omarchy/plugins/homelab-mesh/`
+`~/.config/omarchy/plugins/donnie.homelab-mesh/` (or a local symlink of that name)
 
 ### Tests
 

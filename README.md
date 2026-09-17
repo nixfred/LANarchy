@@ -10,10 +10,10 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.3.11-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.12-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
-Plugin id: `donnie.homelab-mesh` · Config: `~/.config/omarchy/plugins/homelab-mesh/`  
+Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
 Repo: [DonnieFi/OmarPlugs](https://github.com/DonnieFi/OmarPlugs) · Architecture: [`docs/architecture.md`](docs/architecture.md)
 
 </div>
@@ -56,7 +56,7 @@ omarchy bar move donnie.homelab-mesh --section right
 Dev symlink (this checkout is the plugin root):
 
 ```bash
-ln -sfn /path/to/OmarPlugs ~/.config/omarchy/plugins/homelab-mesh
+ln -sfn /path/to/OmarPlugs ~/.config/omarchy/plugins/donnie.homelab-mesh
 omarchy-shell shell rescanPlugins
 omarchy plugin enable donnie.homelab-mesh
 ```
@@ -66,7 +66,7 @@ Validate:
 ```bash
 omarchy plugin validate .
 # or
-omarchy plugin validate ~/.config/omarchy/plugins/homelab-mesh
+omarchy plugin validate ~/.config/omarchy/plugins/donnie.homelab-mesh
 ```
 
 Open:
@@ -78,9 +78,11 @@ omarchy-shell shell summon donnie.homelab-mesh
 ### Optional UniFi
 
 ```bash
-cp unifi-secrets.json.example ~/.config/omarchy/plugins/homelab-mesh/unifi-secrets.json
+cp unifi-secrets.json.example ~/.config/omarchy/plugins/donnie.homelab-mesh/unifi-secrets.json
 # UNIFI_KEY=...   or JSON {"apiKey":"..."}
 ```
+
+Shipped `inventory.json` is a tiny localhost starter. Use **Setup → Search network** to build your mesh.
 
 `unifi-secrets.json` is gitignored. Never put keys in `inventory.json`. Lanarchy never auto-writes inventory from UniFi — Find hosts only proposes candidates you click to add.
 
@@ -126,7 +128,7 @@ Bar widget setting (also in `shell.json` under the widget entry):
 |-----|---------|-------|
 | `refreshIntervalSec` | `15` | 5–120 |
 
-Inventory and sidecars (all under `~/.config/omarchy/plugins/homelab-mesh/`):
+Inventory and sidecars live in the plugin install directory (`~/.config/omarchy/plugins/donnie.homelab-mesh/` after `plugin add`):
 
 | File | Purpose |
 |------|---------|
@@ -161,7 +163,7 @@ Empty inventory writes are refused. Setup/form saves go through `inventory_cli.p
 omarchy plugin remove donnie.homelab-mesh
 ```
 
-That disables and removes the plugin checkout/symlink. Your state files under `~/.config/omarchy/plugins/homelab-mesh/` may remain if the folder was not a pure git checkout — delete that directory if you want a clean slate (`inventory.json`, history, secrets, snapshot).
+That disables and removes the plugin checkout/symlink. Your state files under `~/.config/omarchy/plugins/donnie.homelab-mesh/` may remain if the folder was not a pure git checkout — delete that directory if you want a clean slate (`inventory.json`, history, secrets, snapshot).
 
 ---
 
@@ -190,7 +192,7 @@ omarchy-shell shell rescanPlugins
 One-shot collector (debug):
 
 ```bash
-cd ~/.config/omarchy/plugins/homelab-mesh
+cd ~/.config/omarchy/plugins/donnie.homelab-mesh
 python3 probe.py                 # glance JSON on stdout + snapshot
 python3 probe.py wol <id|mac>
 python3 probe.py speedtest --id <machine>
@@ -251,5 +253,3 @@ Version lives in **`manifest.json`** only. Releases bump it, add a [CHANGELOG.md
 Built for [Omarchy](https://omarchy.org) / Quickshell. List density and panel patterns follow [Pulse](https://github.com/nixfred/pulse) by Fred Nix. Discover and glance UX are Lanarchy’s own.
 
 MIT — see [LICENSE](LICENSE).
-
-Listed via the [Omarchy plugin marketplace](https://omarchyplugins.com) submit form once this repo is public.

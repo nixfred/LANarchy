@@ -26,6 +26,7 @@ sand-secrets.json
 
 # Runtime sidecars — repo ships default inventory.json; live state stays untracked
 inventory.local.json
+inventory.lab.json
 inventory.json.bak
 *.log
 unifi-secrets.json
@@ -37,3 +38,4 @@ notify-state.json
 *.tmp
 *.swp
 *~
+scratch/
