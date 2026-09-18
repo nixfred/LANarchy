@@ -3,6 +3,13 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.9.1 - 2026-09-17
+
+- CPython's `__pycache__` no longer lands in the plugin tree either. Importing any
+  module wrote bytecode next to the code, which the shell's plugin watcher reads
+  as a change and answers with a reload. Every python the panel spawns now sets
+  `PYTHONPYCACHEPREFIX` into the state directory
+
 ## 0.9.0 - 2026-09-17
 
 - **Runtime state no longer lives in the plugin directory.** The shell watches a

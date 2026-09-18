@@ -1995,8 +1995,13 @@ Panel {
     }
   }
 
+  // Keep CPython's __pycache__ out of the plugin tree: the shell watches that
+  // directory and reloads the plugin when bytecode is written into it.
+  readonly property var pyEnv: ({ "PYTHONPYCACHEPREFIX": root.stateDir + "/pycache" })
+
   Process {
     id: daemonProc
+    environment: root.pyEnv
     stdout: StdioCollector { waitForEnd: false }
     stderr: StdioCollector { waitForEnd: false }
     onExited: function(exitCode) {
@@ -2044,6 +2049,7 @@ Panel {
 
   Process {
     id: actionProc
+    environment: root.pyEnv
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -2062,6 +2068,7 @@ Panel {
 
   Process {
     id: invDumpProc
+    environment: root.pyEnv
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.applyInventoryDump(String(text || ""))
@@ -2082,6 +2089,7 @@ Panel {
 
   Process {
     id: invWriteProc
+    environment: root.pyEnv
     stdout: StdioCollector { waitForEnd: true }
     stderr: StdioCollector {
       waitForEnd: true

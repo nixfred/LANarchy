@@ -92,6 +92,18 @@ def state_dir() -> Path:
     return out
 
 
+def pycache_env() -> dict:
+    """Environment that keeps CPython's bytecode cache out of the plugin tree.
+
+    Importing any module here writes `__pycache__/` next to the code, which the
+    shell's plugin watcher sees as a change and answers with a reload. Redirect
+    it rather than disabling caching, so imports stay fast.
+    """
+    env = dict(os.environ)
+    env["PYTHONPYCACHEPREFIX"] = str(state_dir() / "pycache")
+    return env
+
+
 # Files that used to live beside the code and are now migrated out of it.
 _STATE_FILES = (
     "inventory.json",

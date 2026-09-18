@@ -114,6 +114,8 @@ leftovers = [n for n in ("inventory.json", "snapshot.json", "history.json",
                          "notify-state.json", ".panel-heartbeat",
                          ".daemon.lock", ".probe.lock")
              if (plugin / n).exists()]
+env = plugin_paths.pycache_env()
+assert env["PYTHONPYCACHEPREFIX"].startswith(str(state)), "bytecode must not land in the plugin tree"
 assert not leftovers, f"still writing into the plugin tree: {leftovers}"
 print("state is outside the plugin tree")
 PY_STATE
