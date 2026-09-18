@@ -40,7 +40,13 @@ from naming_lib import apply_name, name_key
 from notify_lib import process_probe_glance
 from os_lib import identify
 from seen_lib import load_ledger, observe, prune, recent_arrivals, save_ledger
-from plugin_paths import atomic_write_json, inventory_path, load_json_or, probe_lock, snapshot_path
+from plugin_paths import (
+    atomic_write_json,
+    ensure_user_inventory,
+    load_json_or,
+    probe_lock,
+    snapshot_path,
+)
 from unifi_lib import collect_unifi, fmt_mac
 from speedtest_lib import resolve_speedtest_url, run_speedtest
 from telemetry_lib import (
@@ -70,7 +76,7 @@ WAN_PROBE_HOST = "1.1.1.1"
 
 
 def inventory_file() -> Path:
-    return inventory_path() if inventory_path().is_file() else HERE / "inventory.default.json"
+    return ensure_user_inventory()
 
 
 def now_iso() -> str:

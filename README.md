@@ -1,20 +1,22 @@
 <div align="center">
 
-<img src="docs/screenshots/map-0.3.12.png" width="900" alt="Lanarchy map: machines to Caddy hub to services, leftover LAN cluster, theme-coloured borders">
+<img src="docs/screenshots/map-1.0.0.png" width="900" alt="LANarchy map: eight machines in a row, each wired down into its row lane and out through the gateway to the internet">
 
-# Lanarchy
+# LANarchy
 
-**Homelab status in the Omarchy bar — who is up, what sits behind Caddy, and what just appeared on the LAN.**
+**Your homelab as a map in the Omarchy bar — who is up, what it runs, and how much traffic is actually moving.**
 
-No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` names as reverse-proxy hosts.
+No typing IPs. Search the network, add boxes from UniFi / mDNS, and every name sticks to its hardware rather than its address.
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.4.0-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.0-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
-Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
-Repo: [DonnieFi/OmarPlugs](https://github.com/DonnieFi/OmarPlugs) · Architecture: [`docs/architecture.md`](docs/architecture.md)
+Plugin id: `nixfred.lanarchy` · Install: `~/.config/omarchy/plugins/nixfred.lanarchy/`  
+Repo: [nixfred/LANarchy](https://github.com/nixfred/LANarchy) · Architecture: [`docs/architecture.md`](docs/architecture.md)
+
+*A fork of [Lanarchy](https://github.com/DonnieFi/OmarPlugs) by [Donnie Fiander](https://github.com/DonnieFi), who wrote the original and merged our work upstream through 0.4.0.*
 
 </div>
 
@@ -33,13 +35,13 @@ Lanarchy keeps that straight:
 | **proxy** | Caddy health URL | HTTP 2xx/3xx or TCP check |
 
 <div align="center">
-<img src="docs/screenshots/list-0.3.12.png" width="520" alt="Lanarchy list dash: machines, UniFi, grouped services with colour lights">
+<img src="docs/screenshots/list-1.0.0.png" width="520" alt="Lanarchy list dash: machines, UniFi, grouped services with colour lights">
 </div>
 
 List is the default dash (Pulse-style colour lights). Map is the letterbox of the same mesh. Setup is where you **Search network** instead of hand-entering addresses.
 
 <div align="center">
-<img src="docs/screenshots/setup-0.3.12.png" width="520" alt="Lanarchy Setup: Find hosts Search network button and inventory with machine/host pills">
+<img src="docs/screenshots/setup-1.0.0.png" width="520" alt="Lanarchy Setup: Find hosts Search network button and inventory with machine/host pills">
 </div>
 
 ---
@@ -50,15 +52,15 @@ Plugins run **unsandboxed** inside your long-lived `omarchy-shell` process. Only
 
 ```bash
 omarchy plugin add https://github.com/DonnieFi/OmarPlugs.git --enable
-omarchy bar move donnie.homelab-mesh --section right
+omarchy bar move nixfred.lanarchy --section right
 ```
 
 Dev symlink (this checkout is the plugin root):
 
 ```bash
-ln -sfn /path/to/OmarPlugs ~/.config/omarchy/plugins/donnie.homelab-mesh
+ln -sfn /path/to/OmarPlugs ~/.config/omarchy/plugins/nixfred.lanarchy
 omarchy-shell shell rescanPlugins
-omarchy plugin enable donnie.homelab-mesh
+omarchy plugin enable nixfred.lanarchy
 ```
 
 Validate:
@@ -66,19 +68,19 @@ Validate:
 ```bash
 omarchy plugin validate .
 # or
-omarchy plugin validate ~/.config/omarchy/plugins/donnie.homelab-mesh
+omarchy plugin validate ~/.config/omarchy/plugins/nixfred.lanarchy
 ```
 
 Open:
 
 ```bash
-omarchy-shell shell summon donnie.homelab-mesh
+omarchy-shell shell summon nixfred.lanarchy
 ```
 
 ### Optional UniFi
 
 ```bash
-cp unifi-secrets.json.example ~/.config/omarchy/plugins/donnie.homelab-mesh/unifi-secrets.json
+cp unifi-secrets.json.example ~/.config/omarchy/plugins/nixfred.lanarchy/unifi-secrets.json
 # UNIFI_KEY=...   or JSON {"apiKey":"..."}
 ```
 
@@ -191,7 +193,9 @@ Bar widget setting (also in `shell.json` under the widget entry):
 |-----|---------|-------|
 | `refreshIntervalSec` | `15` | 5–120 |
 
-Inventory and sidecars live in the plugin install directory (`~/.config/omarchy/plugins/donnie.homelab-mesh/` after `plugin add`):
+Inventory and sidecars live under `$XDG_STATE_HOME/lanarchy` (usually
+`~/.local/state/lanarchy/`), never inside the plugin directory — the shell watches
+that tree and reloads on every write:
 
 | File | Purpose |
 |------|---------|
@@ -241,10 +245,10 @@ Empty inventory writes are refused. Setup/form saves go through `inventory_cli.p
 ## Remove
 
 ```bash
-omarchy plugin remove donnie.homelab-mesh
+omarchy plugin remove nixfred.lanarchy
 ```
 
-That disables and removes the plugin checkout/symlink. Your state files under `~/.config/omarchy/plugins/donnie.homelab-mesh/` may remain if the folder was not a pure git checkout — delete that directory if you want a clean slate (`inventory.json`, history, secrets, snapshot).
+That disables and removes the plugin checkout/symlink. Your state files under `~/.config/omarchy/plugins/nixfred.lanarchy/` may remain if the folder was not a pure git checkout — delete that directory if you want a clean slate (`inventory.json`, history, secrets, snapshot).
 
 ---
 
@@ -265,15 +269,15 @@ That disables and removes the plugin checkout/symlink. Your state files under `~
 ## IPC
 
 ```bash
-omarchy-shell shell summon donnie.homelab-mesh
-omarchy-shell shell hide donnie.homelab-mesh
+omarchy-shell shell summon nixfred.lanarchy
+omarchy-shell shell hide nixfred.lanarchy
 omarchy-shell shell rescanPlugins
 ```
 
 One-shot collector (debug):
 
 ```bash
-cd ~/.config/omarchy/plugins/donnie.homelab-mesh
+cd ~/.config/omarchy/plugins/nixfred.lanarchy
 python3 probe.py                 # glance JSON on stdout + snapshot
 python3 probe.py wol <id|mac>
 python3 probe.py speedtest --id <machine>
@@ -371,6 +375,21 @@ Version lives in **`manifest.json`** only. Releases bump it, add a [CHANGELOG.md
 
 ## Credits
 
-Built for [Omarchy](https://omarchy.org) / Quickshell. List density and panel patterns follow [Pulse](https://github.com/nixfred/pulse) by Fred Nix. Discover and glance UX are Lanarchy’s own.
+**LANarchy is a fork of [Lanarchy](https://github.com/DonnieFi/OmarPlugs) by
+[Donnie Fiander](https://github.com/DonnieFi).** He wrote the original plugin — the
+inventory model, the discover flow, the bar widget and the first topology map — and
+everything here is built on it.
+
+Between 0.3.13 and 0.4.0 he reviewed and merged five pull requests from this fork
+(runtime state relocation and the probe gate, collector naming / OS identification /
+arrivals, the panel map rewrite, the starter telemetry fix, and a release checklist),
+then cut 0.4.0 himself. **`donnie-0.4.0` is tagged in this repository** as the exact
+point the two trees share, so anything at or before it is his work as much as ours.
+
+From 1.0.0 this fork goes its own way, under its own plugin id (`nixfred.lanarchy`),
+so both can be installed side by side.
+
+Built for [Omarchy](https://omarchy.org) / Quickshell. List density and panel patterns
+follow [Pulse](https://github.com/nixfred/pulse) by Fred Nix.
 
 MIT — see [LICENSE](LICENSE).

@@ -7,15 +7,6 @@
       "label": "This box",
       "dns": "localhost",
       "ip": "127.0.0.1"
-    },
-    {
-      "id": "caddy-health",
-      "type": "proxy",
-      "label": "Caddy",
-      "check": "http",
-      "url": "http://127.0.0.1:2019/config/",
-      "group": "caddy",
-      "notify": false
     }
   ],
   "settings": {

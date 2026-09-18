@@ -13,9 +13,7 @@ NODE_TYPES = frozenset({"machine", "host", "proxy"})
 PROXY_CHECKS = frozenset({"http", "tcp"})
 
 HERE = Path(__file__).resolve().parent
-# The shipped starter. The live inventory.json is user state under state_dir()
-# and is seeded from this file on first run.
-DEFAULT_INVENTORY = HERE / "inventory.default.json"
+DEFAULT_INVENTORY = HERE / "inventory.json"  # seed with plugin_paths.ensure_user_inventory()
 
 
 def slugify(label: str) -> str:

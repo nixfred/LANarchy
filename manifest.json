@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "id": "donnie.homelab-mesh",
-  "name": "Lanarchy",
-  "version": "0.4.0",
-  "author": "Donnie Fiander",
+  "id": "nixfred.lanarchy",
+  "name": "LANarchy",
+  "version": "1.0.0",
+  "author": "Fred Nix",
   "license": "MIT",
-  "description": "Homelab status map and list in the Omarchy bar \u2014 machines, Caddy services, UniFi, and Find hosts.",
-  "homepage": "https://github.com/DonnieFi/OmarPlugs",
-  "repository": "https://github.com/DonnieFi/OmarPlugs",
+  "description": "Homelab topology map and health in the Omarchy bar — machines, services, UniFi and measured traffic. Fork of Donnie Fiander's Lanarchy.",
+  "homepage": "https://github.com/nixfred/LANarchy",
+  "repository": "https://github.com/nixfred/LANarchy",
   "kinds": [
     "bar-widget"
   ],
@@ -15,8 +15,8 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "Lanarchy",
-    "description": "Letterbox topology map and machines / LAN / proxy health.",
+    "displayName": "LANarchy",
+    "description": "Topology map with measured traffic, plus machine / service health.",
     "category": "Network",
     "allowMultiple": false,
     "defaultSection": "right",

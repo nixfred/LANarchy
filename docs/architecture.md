@@ -1,6 +1,6 @@
 # Lanarchy architecture
 
-Product name **Lanarchy**. Plugin id: `donnie.homelab-mesh`.
+Product name **Lanarchy**. Plugin id: `nixfred.lanarchy`.
 
 This document defines the sidecar formats the panel, probe, and daemon share. The bar **glance probe JSON stays unchanged** (`as_of`, `machines`, `lan`, `proxies`).
 
@@ -8,7 +8,7 @@ This document defines the sidecar formats the panel, probe, and daemon share. Th
 
 All user-writable state lives under:
 
-`~/.config/omarchy/plugins/<manifest.id>/` (e.g. `donnie.homelab-mesh`)
+`~/.config/omarchy/plugins/<manifest.id>/` (e.g. `nixfred.lanarchy`)
 
 | File | Purpose |
 |------|---------|

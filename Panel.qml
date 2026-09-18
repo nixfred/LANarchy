@@ -10,8 +10,8 @@ import qs.Ui
 // Glance JSON unchanged (machines / lan / proxies). Setup edits nodes[] via inventory_cli.
 Panel {
   id: root
-  moduleName: "donnie.homelab-mesh"
-  ipcTarget: "donnie.homelab-mesh"
+  moduleName: "nixfred.lanarchy"
+  ipcTarget: "nixfred.lanarchy"
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -3240,7 +3240,7 @@ Panel {
     return root.themeGreen
   }
 
-  // Scriptable surface. `omarchy-shell donnie.homelab-mesh <fn>` drives the
+  // Scriptable surface. `omarchy-shell nixfred.lanarchy <fn>` drives the
   // panel without the mouse, which also makes the views testable.
   IpcHandler {
     // NOT the plugin id: the host's Ui/Panel base already registers a handler on
@@ -4717,7 +4717,7 @@ Panel {
             horizontalAlignment: Text.AlignHCenter
             text: root.glanceTab === "map"
                 ? "Arrows select · Enter mutes · h hides · a toggles Flow · m list"
-                : "LAN bucket = leftovers + demoted · Show restores · m map · r refresh"
+                : "LAN = leftovers + hidden cards · Show puts one back · m map · r refresh"
             color: root.muted
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

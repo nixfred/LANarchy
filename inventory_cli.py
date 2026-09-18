@@ -8,13 +8,8 @@ from pathlib import Path
 
 from edges_lib import resolve_edges
 from groups_lib import group_nodes
-from inventory_lib import (
-    DEFAULT_INVENTORY,
-    load_inventory,
-    normalize_inventory,
-    save_inventory,
-)
-from plugin_paths import inventory_path as user_inventory_path
+from inventory_lib import load_inventory, normalize_inventory, save_inventory
+from plugin_paths import ensure_user_inventory
 
 
 def cmd_dump(path: Path) -> int:
@@ -100,7 +95,7 @@ def cmd_write(path: Path, json_file: Path) -> int:
 def main(argv: list[str]) -> int:
     # inventory_cli.py [inventory-path] dump|migrate|write <file>
     args = list(argv[1:])
-    inv_path = user_inventory_path() if user_inventory_path().is_file() else DEFAULT_INVENTORY
+    inv_path = ensure_user_inventory()
     if args and args[0] not in ("dump", "migrate", "write") and not args[0].startswith("-"):
         # optional leading path
         maybe = Path(args[0])
