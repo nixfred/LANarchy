@@ -389,8 +389,8 @@ Panel {
     if (root.lanBucketRows().length)
       edges.push({ from: anchor, to: "__lan__", kind: "lan" })
 
-    // The internet, beyond the gateway. This is the only edge whose traffic we
-    // can honestly attribute: everything leaving these hosts crosses it.
+    // The internet, beyond the gateway. This is topology only: host counters
+    // include LAN traffic and cannot measure this link.
     if (gw && root.wan)
       edges.push({ from: gw, to: "__wan__", kind: "wan" })
 
@@ -430,6 +430,12 @@ Panel {
   // A clear horizontal lane below the machine grid. Machine uplinks run in
   // it instead of cutting across the cards between them.
   property real mapGutterY: 0
+  // X positions of the gaps between machine columns. An uplink drops through
+  // one of these instead of straight down, which would cross the card sitting
+  // directly below it once the band wraps to a second row.
+  property var mapColumnGaps: []
+  property real mapEgressY: 0
+  readonly property real mapEgressH: Style.space(124)
   property real mapSplitX: 0
   property real mapBarWidth: 0
   property bool mapHasExternal: false
@@ -574,7 +580,8 @@ Panel {
       var rowB = root.glanceRowById(e.to)
       // The gateway-to-internet link has no counters behind it. Drawing packets
       // there would be inventing throughput, so the edge stays still.
-      var flow = String(e.to || "") === "__wan__" || String(e.from || "") === "__wan__"
+      var internetLink = String(e.to || "") === "__wan__" || String(e.from || "") === "__wan__"
+      var flow = internetLink
           ? ({ rx: 0, tx: 0, bps: 0, measured: false })
           : root.edgeFlow(rowA, rowB)
       var kind = String(e.kind || "")
@@ -591,7 +598,8 @@ Panel {
         points: pts,
         length: len,
         kind: kind,
-        width: root.edgeFlowWidth(flow.bps),
+        internetLink: internetLink,
+        width: internetLink ? Style.space(10) : root.edgeFlowWidth(flow.bps),
         down: down,
         // Measured throughput, both directions. rx walks the route forwards,
         // tx walks it back, so the picture shows which way the bytes go.
@@ -626,6 +634,16 @@ Panel {
     if (!(laneY > aBottom + 2)) return null
 
     var aCx = aBox.x + aBox.w / 2
+    // Drop through the nearest gap between columns, not through the card below.
+    var dropX = aCx
+    var best = -1
+    for (var gi = 0; gi < root.mapColumnGaps.length; gi++) {
+      var d = Math.abs(root.mapColumnGaps[gi] - aCx)
+      if (best < 0 || d < best) {
+        best = d
+        dropX = root.mapColumnGaps[gi]
+      }
+    }
     var enterX = bBox.x + bBox.w / 2
     var enterY = bBox.y
     var side = "top"
@@ -641,7 +659,10 @@ Panel {
       side = "side"
     }
 
-    var pts = [{ x: aCx, y: aBottom }, { x: aCx, y: laneY }]
+    // Leave the card, step sideways into the gap, then run down to the lane.
+    var stepY = aBottom + Style.space(6)
+    var pts = [{ x: aCx, y: aBottom }, { x: aCx, y: stepY },
+               { x: dropX, y: stepY }, { x: dropX, y: laneY }]
     if (side === "side") {
       pts.push({ x: enterX, y: laneY })
     } else {
@@ -1124,7 +1145,6 @@ Panel {
   function recalcMapLayout() {
     if (!mapArea || mapArea.width <= 0) return
     var w = mapArea.width
-    var h = mapArea.height
     var layout = []
     var cardW = Style.space(108)
     var cardH = root.mapCardH
@@ -1134,13 +1154,10 @@ Panel {
     // The internet is always out there, so the external rail always exists.
     root.mapHasExternal = externals.length > 0 || root.wan !== null
 
-    // INTERNAL (~2/3) | ROUTER BAR | EXTERNAL (~1/3) — classic LAN-heavy letterbox
-    var barW = root.mapHasExternal ? Style.space(140) : 0
-    var usable = Math.max(Style.space(400), w - barW)
-    var leftW = root.mapHasExternal
-        ? Math.max(Style.space(300), Math.floor(usable * (2 / 3)))
-        : w
-    var rightW = root.mapHasExternal ? Math.max(Style.space(140), usable - leftW) : 0
+    // Reserve a compact exit assembly; extra width belongs to the LAN grid.
+    var barW = root.mapHasExternal ? Math.min(Style.space(176), w * 0.23) : 0
+    var rightW = root.mapHasExternal ? Math.min(Style.space(252), w * 0.34) : 0
+    var leftW = w - barW - rightW
     var barX = leftW
     root.mapSplitX = barX
     root.mapBarWidth = barW
@@ -1183,6 +1200,15 @@ Panel {
       var cw = Math.max(minW, Math.min(cardW, (colW - gapX * (columns - 1)) / columns))
       var spanW = cw * columns + gapX * (columns - 1)
       var startX = colX + Math.max(0, (colW - spanW) / 2)
+      if (kind === "machine") {
+        var gaps = []
+        for (var g = 0; g < columns - 1; g++)
+          gaps.push(startX + cw * (g + 1) + gapX * g + gapX / 2)
+        // Outside the block counts too, for the first and last columns.
+        gaps.push(startX - gapX / 2)
+        gaps.push(startX + spanW + gapX / 2)
+        root.mapColumnGaps = gaps
+      }
       var i, row, r, c
       for (i = 0; i < n; i++) {
         row = rows[i]
@@ -1201,17 +1227,22 @@ Panel {
                                     root.machineMetric, null, 0, leftW)
     root.mapGutterY = machineBandBottom + Style.space(12)
 
-    // Prefer redUltra on the router bar; only fall back to Caddy there when no router machine.
+    // Anchor the exit to the collection lane, independent of the panel height.
+    // More machine rows move the whole exit down without a sizing feedback loop.
+    root.mapEgressY = Math.max(Style.space(48), root.mapGutterY - root.mapEgressH / 2)
+
+    // Prefer the real default gateway on the router boundary.
     // Never place the same hub id twice (left gateway + bar).
     var hubOnRouterBar = false
     if (root.mapHasExternal) {
-      var rw = Math.min(Style.space(118), barW - Style.space(14))
-      var rh = Style.space(124)
-      var ry = Math.max(Style.space(56), (h - rh) / 2 - Style.space(12))
+      var rw = barW - Style.space(16)
+      var rh = root.mapEgressH
+      var ry = root.mapEgressY
       if (root.gateway) {
         // The real next hop, not a machine standing in for one.
         place(root.gateway, root.gatewaySubline(), barX + (barW - rw) / 2, ry, rw, rh,
-              "router", root.gatewayMetric(), [])
+              "router", [root.gateway.model || "", root.gateway.ip || "",
+                         "RTT  " + root.rttText(root.gateway)].filter(function(v) { return v !== "" }).join("\n"), [])
       } else if (router) {
         place(router, "router", barX + (barW - rw) / 2, ry, rw, rh, "router",
               root.routerMetric(router), [])
@@ -1250,17 +1281,19 @@ Panel {
     }
 
     if (root.wan) {
-      var wanW = Math.min(Style.space(130), Math.max(Style.space(100), rightW - Style.space(16)))
-      var wanH = Style.space(96)
-      place(root.wan, "internet", barX + barW + (rightW - wanW) / 2, Style.space(30),
-            wanW, wanH, "cloud", root.wanMetric(), [])
+      var wanW = rightW - Style.space(64)
+      place(root.wan, "internet", w - wanW - Style.space(12), root.mapEgressY,
+            wanW, root.mapEgressH, "cloud",
+            String(root.wan.status || "unknown").toUpperCase() + "  ·  RTT " + root.rttText(root.wan)
+              + "\n" + (root.wan.public_ip || "Public IP unavailable")
+              + "\nWAN traffic unmeasured", [])
     }
 
     if (externals.length) {
       var railX = barX + barW
       var cw = Math.min(Style.space(120), Math.max(Style.space(96), rightW - Style.space(16)))
       var gapY = Style.space(10)
-      var startY = Style.space(36) + (root.wan ? Style.space(116) : 0)
+      var startY = root.wan ? root.mapEgressY + root.mapEgressH + Style.space(28) : Style.space(36)
       var i, row, y
       for (i = 0; i < externals.length; i++) {
         row = externals[i]
@@ -2530,6 +2563,7 @@ Panel {
     property bool selected: false
     property bool notifyOn: true
     readonly property bool isLan: nodeId === "__lan__"
+    readonly property bool isEgress: nodeId === "__gateway__" || nodeId === "__wan__"
     signal activated()
     signal notifyClicked()
 
@@ -2544,13 +2578,22 @@ Panel {
       if (status === "down") return Qt.alpha(root.statusColor("down"), 0.20)
       return root.card
     }
-    border.width: selected || status === "down" ? 2 : 1
+    border.width: selected || status === "down" || mapBox.isEgress ? 2 : 1
     border.color: {
       if (selected || status === "up" || status === "degraded" || status === "down")
         return Qt.alpha(root.statusColor(status), selected || status === "down" ? 1.0 : 0.88)
       return root.borderIdle
     }
     antialiasing: true
+
+    // Mask the zone divider beneath the gateway's translucent status fill.
+    Rectangle {
+      visible: mapBox.isEgress
+      anchors.fill: parent
+      radius: mapBox.radius
+      color: Color.popups.background
+      z: -1
+    }
 
     // Status as light. A card's health is legible across the room without
     // reading the dot or the label: green sits still, amber breathes, red
@@ -2659,11 +2702,11 @@ Panel {
         // platform line must reserve its width or the two overprint.
         width: Math.max(Style.space(24),
                         parent.width - (mapBox.notifyOn || mapBox.isLan ? 0 : Style.space(52)))
-        text: subline.toUpperCase()
+        text: mapBox.nodeId === "__gateway__" ? "DEFAULT GATEWAY" : mapBox.subline.toUpperCase()
         color: root.inkDim
         font.family: root.fontFamily
-        font.pixelSize: 10
-        font.letterSpacing: 1.2
+        font.pixelSize: Style.font.caption
+        font.letterSpacing: mapBox.isEgress ? 0.6 : 1.2
         elide: Text.ElideRight
       }
 
@@ -2725,10 +2768,12 @@ Panel {
 
       Text {
         width: parent.width
-        text: mapBox.metric !== "" ? mapBox.metric : root.rttText(rttRow)
+        text: mapBox.metric !== "" ? mapBox.metric : root.rttText(mapBox.rttRow)
         color: (mapBox.metric === "—" || mapBox.metric === "") ? root.inkDim : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
+        wrapMode: mapBox.isEgress ? Text.Wrap : Text.NoWrap
+        maximumLineCount: mapBox.isEgress ? 5 : 1
         elide: Text.ElideRight
       }
 
@@ -2749,6 +2794,7 @@ Panel {
 
       Sparkline {
         id: cardSpark
+        visible: !mapBox.isEgress
         width: parent.width
         height: Style.space(16)
         nodeId: mapBox.sparklineId
@@ -3219,7 +3265,7 @@ Panel {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "2⁄3 INTERNAL · router bar · Flow = measured throughput · double-click a name to rename"
+                        ? "LAN → default gateway → Internet · WAN link is topology only · double-click a name to rename"
                         : "Machines → gateway → internet · Flow = measured throughput · double-click a name to rename")
                     : "Dash · colour lights · Move to LAN for noise"
                 color: root.inkDim
@@ -3355,32 +3401,39 @@ Panel {
             onHeightChanged: root.recalcMapLayout()
             clip: true
 
-            // Full-height router column between INTERNAL and EXTERNAL
+            // A narrow boundary passes through the gateway, rather than
+            // enclosing a floating card in an empty full-height container.
             Rectangle {
               id: routerBar
               visible: root.mapHasExternal && root.mapBarWidth > 0
+              x: root.mapSplitX + root.mapBarWidth / 2 - width / 2
+              y: Style.space(28)
+              width: Style.space(2)
+              height: parent.height - Style.space(40)
+              color: Qt.alpha(Color.accent, 0.22)
+            }
+            Text {
+              visible: root.mapHasExternal
               x: root.mapSplitX
               y: Style.space(6)
               width: root.mapBarWidth
-              height: parent.height - Style.space(12)
-              radius: Style.space(10)
-              // A zone divider, not a link. It used to carry a lit, animated
-              // full-height spine across empty space, which read as traffic on
-              // a wire that does not exist.
-              color: Qt.alpha(Color.accent, 0.05)
-              border.width: 1
-              border.color: Qt.alpha(Color.accent, 0.22)
-
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: Style.space(6)
-                text: "ROUTER"
-                color: root.inkDim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.letterSpacing: 1.4
-                font.bold: true
-              }
+              horizontalAlignment: Text.AlignHCenter
+              text: "ROUTER"
+              color: root.inkDim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1.4
+              font.bold: true
+            }
+            Rectangle {
+              visible: root.gateway !== null && root.wan !== null
+              x: root.mapSplitX
+              y: root.mapEgressY - Style.space(8)
+              width: parent.width - x - Style.space(4)
+              height: root.mapEgressH + Style.space(16)
+              radius: Style.space(18)
+              color: Qt.alpha(Color.accent, 0.045)
+              border.color: Qt.alpha(Color.accent, 0.16)
             }
 
               Text {
@@ -3443,20 +3496,37 @@ Panel {
                 for (var i = 0; i < list.length; i++) {
                   var r = list[i]
                   var pts = r.points
-                  // Underglow: width tracks real endpoint rates.
+                  // WAN emphasis is fixed; other widths track endpoint rates.
                   ctx.strokeStyle = Qt.alpha(r.color, r.down ? 0.20 : 0.26)
                   ctx.lineWidth = r.width
                   ctx.beginPath()
                   ctx.moveTo(pts[0].x, pts[0].y)
                   for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y)
                   ctx.stroke()
-                  // The route, thin and definite.
-                  ctx.strokeStyle = Qt.alpha(r.color, r.down ? 0.34 : 0.55)
-                  ctx.lineWidth = 1.4
+                  // Give the static internet exit a clear visual hierarchy.
+                  ctx.strokeStyle = Qt.alpha(r.color, r.internetLink ? 0.85 : (r.down ? 0.34 : 0.55))
+                  ctx.lineWidth = r.internetLink ? Style.space(3) : 1.4
                   ctx.beginPath()
                   ctx.moveTo(pts[0].x, pts[0].y)
                   for (j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y)
                   ctx.stroke()
+                  // Static terminal sockets make the exit read as a physical
+                  // connection. Their size is constant, never a traffic signal.
+                  if (r.internetLink) {
+                    var arrow = root.polylinePointAt(pts, r.length / 2)
+                    ctx.beginPath()
+                    ctx.moveTo(arrow.x - Style.space(4), arrow.y - Style.space(5))
+                    ctx.lineTo(arrow.x + Style.space(1), arrow.y)
+                    ctx.lineTo(arrow.x - Style.space(4), arrow.y + Style.space(5))
+                    ctx.stroke()
+                    ctx.fillStyle = r.color
+                    for (var end = 0; end < 2; end++) {
+                      var port = pts[end === 0 ? 0 : pts.length - 1]
+                      ctx.beginPath()
+                      ctx.arc(port.x, port.y, Style.space(4), 0, Math.PI * 2)
+                      ctx.fill()
+                    }
+                  }
                 }
               }
             }

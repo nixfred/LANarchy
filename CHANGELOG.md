@@ -3,6 +3,23 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.14.0 - 2026-09-17
+
+- **The way out of the LAN is drawn properly.** The gateway used to float inside
+  a large empty vertical band, joined to the Internet by a thin line - the least
+  convincing rendering of what is conceptually the most important link on the
+  map. The router band is now a slim boundary, the **default gateway** and
+  **Internet** cards sit aligned either side of it at the collection lane, and a
+  bold directional link with sockets connects them
+- The Internet card states what is actually known: reachability, RTT, the real
+  public IP, and **"WAN traffic unmeasured"** in as many words. The link is
+  topology only and deliberately carries no animation, because nothing here can
+  read the gateway's WAN interface
+- **Uplinks no longer cross the cards below them.** A card in the first row
+  dropped straight down to the collection lane, which after the band began
+  wrapping meant straight through the card in the second row. Drops now step into
+  the gap between columns first
+
 ## 0.13.1 - 2026-09-17
 
 - A machine on **its own network with mains power keeps discovering** even with
