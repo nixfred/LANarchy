@@ -165,15 +165,21 @@ def probe_rtt_node(node: dict) -> dict:
     return row
 
 
-def probe_machine_node(node: dict, hist: dict, ts_now: float) -> dict:
-    """Ping plus SSH/local telemetry: link speed, throughput delta, uptime."""
-    row = probe_rtt_node(node)
-    if row["status"] != "up" or node.get("telemetry") is False:
-        # No telemetry hop, so TTL (when the host answered at all) is all there is.
-        row["os"] = identify(
-            ttl=row.get("ttl"), services=node.get("services"), role=node.get("role")
-        )
-        return row
+# How long to leave a discovered machine alone after it refuses a telemetry hop.
+TELEMETRY_RETRY_S = 600.0
+
+
+def attach_telemetry(row: dict, node: dict, hist: dict, ts_now: float) -> dict:
+    """Read the host's own counters over SSH (or locally) and fold them in.
+
+    Shared by curated nodes and discovered machines. Discovery only calls a
+    candidate a "machine" when it has an open login port, so this is the same
+    question asked of the same kind of box; a host without a usable key simply
+    returns nothing and keeps its ping-only row.
+
+    Returns the row either way, so a failed hop is not an error, just an absence
+    of measurement. That absence is what the map draws as a dashed link.
+    """
     report = collect_machine(row["host"], node.get("sshUser"))
     if not report:
         row["os"] = identify(
@@ -207,6 +213,18 @@ def probe_machine_node(node: dict, hist: dict, ts_now: float) -> dict:
     if report.get("uname_r"):
         row["os"]["release"] = report["uname_r"]
     return row
+
+
+def probe_machine_node(node: dict, hist: dict, ts_now: float) -> dict:
+    """Ping plus SSH/local telemetry: link speed, throughput delta, uptime."""
+    row = probe_rtt_node(node)
+    if row["status"] != "up" or node.get("telemetry") is False:
+        # No telemetry hop, so TTL (when the host answered at all) is all there is.
+        row["os"] = identify(
+            ttl=row.get("ttl"), services=node.get("services"), role=node.get("role")
+        )
+        return row
+    return attach_telemetry(row, node, hist, ts_now)
 
 
 def probe_proxy_node(node: dict) -> dict:
@@ -594,6 +612,39 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             row["status"] = "seen"
             device_rows.append(row)
 
+    # Ask the discovered machines for their counters too. Until now they were
+    # pinged and nothing more, so a discovered box could never report traffic:
+    # its uplink was drawn as a permanently idle line, and since curated nodes
+    # sort first, the whole overflow row of the map was guaranteed to look dead.
+    # Discovery only labels a candidate "machine" when it has an open login
+    # port, so this asks the same question of the same kind of box. No usable
+    # key means no report, the row keeps its ping-only form, and the map keeps
+    # drawing that link dashed.
+    # Back off from the ones that will not answer. An open login port is not a
+    # key you hold, and a host that refuses BatchMode burns the full SSH connect
+    # timeout every single cycle: measured here, one such box took the probe
+    # from 8.6s to 11.6s against a 15s interval. A refusal is remembered for
+    # TELEMETRY_RETRY_S, so steady-state cost is only the hosts that do answer,
+    # and a box that gains a key is picked up on the next retry rather than
+    # needing a restart.
+    auto_live = [
+        r for r in auto_rows
+        if str(r.get("status") or "") == "up" and r.get("host")
+        and float(node_meta(hist, str(r.get("id") or "")).get("no_telemetry_until") or 0) <= ts_now
+    ]
+    if auto_live:
+        with ThreadPoolExecutor(max_workers=min(8, len(auto_live))) as pool:
+            list(pool.map(
+                lambda r: attach_telemetry(r, {"services": r.get("services") or []},
+                                           hist, ts_now),
+                auto_live,
+            ))
+        for r in auto_live:
+            answered = "_counters" in r
+            set_node_meta(hist, str(r.get("id") or ""), {
+                "no_telemetry_until": 0 if answered else ts_now + TELEMETRY_RETRY_S
+            })
+
     # Has this hardware ever been on the network before? Everything observed
     # this pass goes in the ledger; anything whose first sighting is recent and
     # that the user has not already dealt with is an arrival.
@@ -680,7 +731,10 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         "flaps": flap_counts(hist, 1.0, known=live_ids),
     }
     ts = payload["as_of"]
-    for row in machines:
+    # Discovered machines need their counters remembered as well: a rate is a
+    # delta, so without a stored baseline the next pass has nothing to subtract
+    # and no amount of probing would ever produce a number.
+    for row in machines + auto_rows:
         counters = row.pop("_counters", None)
         if counters:
             set_last_counters(hist, row["id"], counters)

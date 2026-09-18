@@ -3,6 +3,29 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.20.0 - 2026-09-18
+
+- **Discovered machines report their traffic.** A discovered host was pinged and
+  nothing more, so it could never produce a byte rate: its uplink was drawn as a
+  permanently idle line. Because curated nodes sort first, that guaranteed the
+  map's overflow row looked dead no matter what. Discovery only calls a
+  candidate a "machine" when it has an open login port, so it now gets the same
+  counter read a curated node gets. A host without a usable key returns nothing,
+  keeps its ping-only row, and stays dashed
+- **A refusal is remembered for ten minutes.** An open login port is not a key
+  you hold, and a host that refuses BatchMode burns the full SSH connect timeout
+  every cycle: measured here, one such box took a probe pass from 8.6s to 11.6s
+  against a 15s interval. Refusals back off, so steady-state cost is only the
+  hosts that answer, and a box that later gains a key is picked up on the next
+  retry rather than needing a restart
+- **Click a card to follow its own path.** The row lane is a shared bus, so five
+  hosts' wires overlay into one line and there was no way to tell whose traffic
+  was whose. Selecting a card now dims every other route and animates only that
+  host's packets. Nothing is added to the default view, and the exit to the
+  internet never recedes because it is on every host's path
+- Telemetry brings real OS identification with it, so several boxes that showed
+  a TTL guess of `UNIX?` now read `LINUX · WIRED` from their own `uname`
+
 ## 0.19.0 - 2026-09-17
 
 - **No wire crosses a card any more.** Every machine uplink ran down to a single

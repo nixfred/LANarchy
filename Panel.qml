@@ -605,6 +605,11 @@ Panel {
         length: len,
         kind: kind,
         internetLink: internetLink,
+        // Endpoints, so selecting a card can pick out its own route. The row
+        // lane is a shared bus: without this, five hosts' wires overlay into
+        // one line and there is no way to see whose traffic is whose.
+        fromId: String(e.from || ""),
+        toId: String(e.to || ""),
         width: internetLink ? Style.space(10) : root.edgeFlowWidth(flow.bps),
         down: down,
         // Measured throughput, both directions. rx walks the route forwards,
@@ -625,6 +630,14 @@ Panel {
       })
     }
     return out
+  }
+
+  // Is this route the selected card's own? Nothing selected means every
+  // measured route is its own subject, which is the default view.
+  function routeIsSelected(route) {
+    var sel = String(root.mapSelectedId || "")
+    if (!sel) return true
+    return String(route.fromId || "") === sel || String(route.toId || "") === sel
   }
 
   // The lane for the row a card sits in: the first lane below its bottom edge.
@@ -3534,8 +3547,8 @@ Panel {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "LAN → gateway → Internet · solid = measured traffic, dashed = no telemetry · double-click a name to rename"
-                        : "Machines → gateway → internet · solid = measured traffic, dashed = no telemetry · double-click a name to rename")
+                        ? "solid = measured traffic, dashed = no telemetry · click a card to follow its own path · double-click a name to rename"
+                        : "solid = measured traffic, dashed = no telemetry · click a card to follow its own path · double-click a name to rename")
                     : "Dash · colour lights · Move to LAN for noise"
                 color: root.inkDim
                 font.family: root.fontFamily
@@ -3706,6 +3719,10 @@ Panel {
               renderStrategy: Canvas.Cooperative
               property var routes: root.mapEdgeRoutes
               onRoutesChanged: requestPaint()
+              // The selection decides what is dimmed, and the canvas repaints
+              // only when told to, so it has to be watched explicitly.
+              property string selection: root.mapSelectedId
+              onSelectionChanged: requestPaint()
               onPaint: {
                 var ctx = getContext("2d")
                 ctx.clearRect(0, 0, width, height)
@@ -3722,19 +3739,27 @@ Panel {
                   // Only hosts whose byte counters can be read report rates, so
                   // most discovered devices are legitimately unmeasured.
                   var unmeasured = !r.measured && !r.internetLink
+                  // Selecting a card picks its own route out of the shared bus.
+                  // Everything else recedes rather than vanishing, so the
+                  // topology still reads while one host's path is followed.
+                  // The exit to the internet is on every host's path, so it
+                  // never recedes; dimming it made the map look half-dead when
+                  // a single card was selected.
+                  var faded = (r.internetLink || root.routeIsSelected(r)) ? 1.0 : 0.22
                   // Both strokes carry the dash. Dashing only the thin line
                   // left the wider underglow solid underneath it, which filled
                   // the gaps back in and made the link look solid anyway.
                   if (unmeasured) ctx.setLineDash([Style.space(4), Style.space(5)])
                   // WAN emphasis is fixed; other widths track endpoint rates.
-                  ctx.strokeStyle = Qt.alpha(r.color, r.down ? 0.20 : 0.26)
+                  ctx.strokeStyle = Qt.alpha(r.color, (r.down ? 0.20 : 0.26) * faded)
                   ctx.lineWidth = r.width
                   ctx.beginPath()
                   ctx.moveTo(pts[0].x, pts[0].y)
                   for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y)
                   ctx.stroke()
                   // Give the static internet exit a clear visual hierarchy.
-                  ctx.strokeStyle = Qt.alpha(r.color, r.internetLink ? 0.85 : (r.down ? 0.34 : 0.55))
+                  ctx.strokeStyle = Qt.alpha(r.color,
+                      (r.internetLink ? 0.85 : (r.down ? 0.34 : 0.55)) * faded)
                   ctx.lineWidth = r.internetLink ? Style.space(3) : 1.4
                   ctx.beginPath()
                   ctx.moveTo(pts[0].x, pts[0].y)
@@ -3774,7 +3799,10 @@ Panel {
                 id: flowLane
                 required property var modelData
                 anchors.fill: parent
-                visible: modelData.measured
+                // With a card selected, only that host's packets move. That
+                // is the whole point: on a shared lane you otherwise cannot
+                // tell which box the bytes belong to.
+                visible: modelData.measured && root.routeIsSelected(modelData)
                 opacity: modelData.down ? 0.55 : 1.0
 
                 // rx forwards, tx backwards.
