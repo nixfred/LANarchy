@@ -570,6 +570,19 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
     dismissed = ignored_keys(inv)
     renamed = name_overrides(inv)
     chosen_names = renamed
+    # Every name a curated node answers to, for the post-rename duplicate check.
+    curated_names: set[str] = set()
+    for n in nodes:
+        if str(n.get("type") or "") != "machine":
+            continue
+        for key in ("label", "id", "dns"):
+            val = str(n.get(key) or "").strip().lower()
+            if val:
+                curated_names.add(val)
+                curated_names.add(val.removesuffix(".local"))
+                curated_names.add(val.removesuffix(".lan"))
+    curated_names.discard("")
+
     auto_rows: list[dict] = []
     device_rows: list[dict] = []
     for cand in candidates:
@@ -595,6 +608,17 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         # Same stamp as every other row, so a renamed box keeps the name
         # discovery found underneath it.
         apply_name(row, renamed)
+
+        # A rename can collide with a box that is already curated. Discovery
+        # excludes anything it recognises, but that check runs on the label
+        # discovery found, before the user's override is applied. Rename a
+        # discovered interface to match a curated node -- which is exactly what
+        # happens on a multihomed box, where the wired and wireless sides have
+        # different MACs -- and the same machine drew two cards, one per
+        # interface. The curated node is authoritative, so the second is
+        # dropped after naming, where the collision is finally visible.
+        if str(row.get("label") or "").strip().lower() in curated_names:
+            continue
 
         if str(cand.get("type") or "") == "machine":
             # A box you can log into earns a place on the map without being

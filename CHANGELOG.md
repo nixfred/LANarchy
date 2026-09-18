@@ -9,6 +9,17 @@ with upstream; he merged five pull requests from this fork and released 0.4.0
 himself. Versions below 1.0.0 in this file are this fork's own numbering from
 before the split, and do not correspond to upstream releases.
 
+## 1.0.1 - 2026-09-18
+
+- **Fixed: a multihomed machine drew two cards.** Discovery excludes anything it
+  already recognises, but that check runs on the label discovery found, *before*
+  the user's rename override is applied. A laptop with wired and wireless
+  interfaces has a different MAC on each, so renaming the discovered side to the
+  curated node's name produced a second card for the same machine, one of them
+  permanently down because only one interface was live. The curated node is
+  authoritative, so a discovered row whose name resolves onto one is now dropped
+  after naming, where the collision is finally visible
+
 ## 1.0.0 - 2026-09-18
 
 First release of the fork under its own identity.
