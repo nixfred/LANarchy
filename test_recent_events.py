@@ -45,7 +45,7 @@ def test_known_filters_nodes_that_no_longer_exist():
     under its raw id, because nothing was left that could give it a name.
     """
     hist = {"events": [
-        _ev("2026-09-17T23:10:00", "83dee99f-b526-470f-9d1b-16ec01196a2c", "up", "down"),
+        _ev("2026-09-17T23:10:00", "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9", "up", "down"),
         _ev("2026-09-17T23:09:00", "nas", "up", "down"),
     ]}
     rows = recent_events(hist, 6, known={"nas"})
