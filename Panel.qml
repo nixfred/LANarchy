@@ -1851,7 +1851,10 @@ Panel {
   // way to be called anything but its address.
   function renameRow(row, newLabel) {
     var label = String(newLabel || "").trim()
-    if (!row || !label) return
+    if (!row || !label) {
+      root.renaming = false
+      return
+    }
     var sid = String(row.id || "")
 
     // A curated node owns its own label; edit it in place.
@@ -2005,6 +2008,7 @@ Panel {
     } else {
       root.view = "glance"
       root.formFieldFocused = false
+      root.renaming = false
     }
   }
 
@@ -2892,7 +2896,9 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       // Block Esc/keys while form fields focused — TextField handles input.
-      enabled: !(root.view === "form" && root.formFieldFocused) && !root.renaming
+      // NOT `enabled`: that propagates down and disables the panel's own text
+      // fields and buttons. `blocked` forwards keys to descendants instead.
+      blocked: (root.view === "form" && root.formFieldFocused) || root.renaming
       onCloseRequested: root.navigateBack()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {

@@ -3,6 +3,17 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.9.3 - 2026-09-17
+
+- **Rename could not be typed into.** The key catcher was switched off with
+  `enabled`, which Qt propagates to every descendant, so pressing Rename disabled
+  the very text field and buttons it opened. It now uses the catcher's `blocked`
+  property, which forwards keys to descendants instead, and rename state is
+  cleared when the panel closes
+- `inventory_cli dump` returns `names` as well as `ignored`. Without it the panel
+  reset its in-memory names to empty on every reload, so a later rename or
+  removal wrote that empty list back over saved names
+
 ## 0.9.2 - 2026-09-17
 
 - **Edges no longer cut through the cards.** A machine's uplink now leaves the
