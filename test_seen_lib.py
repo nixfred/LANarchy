@@ -5,7 +5,7 @@ from __future__ import annotations
 from seen_lib import empty_ledger, normalize_mac, observe, prune, recent_arrivals
 
 STRANGER = [{"mac": "24:6f:28:ab:cd:ef", "label": "Espressif", "ip": "10.0.0.207", "kind": "IoT"}]
-RESIDENT = [{"mac": "6c:6e:07:1e:75:3c", "label": "fnix", "ip": "10.0.0.213"}]
+RESIDENT = [{"mac": "aa:bb:cc:dd:ee:03", "label": "laptop", "ip": "10.0.0.213"}]
 
 
 def test_first_pass_is_a_baseline_not_an_alarm() -> None:
@@ -20,7 +20,7 @@ def test_first_pass_is_a_baseline_not_an_alarm() -> None:
 
 def test_an_arrival_after_the_baseline_is_announced() -> None:
     led = empty_ledger()
-    observe(led, RESIDENT)                 # baseline: fnix is furniture
+    observe(led, RESIDENT)                 # baseline: laptop is furniture
     assert observe(led, RESIDENT + STRANGER) == [], "one sighting is not an arrival"
     got = observe(led, RESIDENT + STRANGER)
     assert [a["mac"] for a in got] == ["24:6f:28:ab:cd:ef"]
@@ -71,7 +71,7 @@ def test_mac_normalisation() -> None:
 def test_prune_forgets_long_gone_hardware() -> None:
     led = empty_ledger()
     observe(led, RESIDENT)
-    led["devices"]["6c:6e:07:1e:75:3c"]["last_seen"] = "2020-01-01T00:00:00+00:00"
+    led["devices"]["aa:bb:cc:dd:ee:03"]["last_seen"] = "2020-01-01T00:00:00+00:00"
     prune(led, keep_days=30)
     assert led["devices"] == {}
 

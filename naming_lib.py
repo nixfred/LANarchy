@@ -2,14 +2,14 @@
 
 A card leads with a name you recognise. The raw identifier is kept, because it
 is what you need when two things look alike, but it belongs in the detail, not
-in the headline. `sonosRINCON_5CAAFD26F5E201400` is not a name; "Living Room"
+in the headline. `sonosRINCON_AABBCCDDEE0101400` is not a name; "Kitchen"
 is, and it was inside that string the whole time.
 """
 from __future__ import annotations
 
 import re
 
-# `RINCON_<id>@Living Room` and `sonosRINCON_<id>` (Sonos), where the part after
+# `RINCON_<id>@Kitchen` and `sonosRINCON_<id>` (Sonos), where the part after
 # `@` is the room the owner chose.
 _SONOS = re.compile(r"^(?:sonos)?RINCON_[0-9A-F]+(?:@(?P<room>.+))?$", re.I)
 _UUID_ISH = re.compile(
@@ -21,7 +21,7 @@ _MAC_TAIL = re.compile(r"[\s_-]*(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\s*$", re.I)
 # Vendor-ish trailing hex that devices append to a friendly name, e.g.
 # "Android_Z9K22SNZ" or "Sonos-5CAAFD26F5E2".
 _HEX_TAIL = re.compile(r"[\s_-]+[0-9A-F]{8,}$")
-# A model/serial chunk appended to a real word: "Android_R5UE8DLF" -> "Android".
+# A model/serial chunk appended to a real word: "Android_A1B2C3D4E" -> "Android".
 _SERIAL_TAIL = re.compile(r"[_-](?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{5,}$")
 
 # Hardware prefixes worth naming outright. Deliberately tiny: these are the ones
@@ -67,7 +67,7 @@ SERVICE_KINDS = (
 
 
 # A model or serial string: no spaces, and a mix of capitals and digits that no
-# person would choose, e.g. "X02500VWG236" or "Android_R5UE8DLF".
+# person would choose, e.g. "X02500VWG236" or "Android_A1B2C3D4E".
 _SERIALISH = re.compile(r"^[A-Za-z]*[_-]?(?=[A-Z0-9_-]*\d)(?=[A-Z0-9_-]*[A-Z])[A-Z0-9_-]{6,}$")
 
 

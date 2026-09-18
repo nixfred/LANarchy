@@ -163,7 +163,7 @@ The version in `manifest.json` is the single source of truth.
 
 ## 0.16.0 - 2026-09-17
 
-- **A device you add by hand gets its own card.** Adding `Spike-iPhone` classed it
+- **A device you add by hand gets its own card.** Adding `a handset` classed it
   as a `host`, and hosts are collapsed into the LAN bucket, so it vanished into a
   cluster instead of appearing on the map. That is also why a LAN BUCKET card
   suddenly existed. `host` is for reverse-proxy names, not for something you just
@@ -434,9 +434,9 @@ Honesty and cost pass. Everything known to be wrong, fixed.
 
 ## 0.7.0 - 2026-09-17
 
-- **Cards lead with a name, not an identifier.** `RINCON_5CAAFD26F5E201400@Living Room`
-  becomes **Living Room**, because the owner's own name for it was inside that
-  string all along. Model serials (`Android_R5UE8DLF`), UUIDs and bare addresses
+- **Cards lead with a name, not an identifier.** `RINCON_AABBCCDDEE0101400@Kitchen`
+  becomes **Kitchen**, because the owner's own name for it was inside that
+  string all along. Model serials (`Android_A1B2C3D4E`), UUIDs and bare addresses
   stop being headlines; the identifier is kept and moves to the card detail
 - Devices get a kind from what they advertise (Sonos, Android TV, Printer,
   Linux desktop, VM, Ubiquiti), so a thing with no name at least says what it is.
@@ -538,7 +538,7 @@ Honesty and cost pass. Everything known to be wrong, fixed.
   write instead of one click per host
 - Discover resolves names automatically: reverse DNS (PTR) turns bare ARP addresses
   into host names, and synthetic answers (`_gateway`, `localhost`) are rejected
-- Discover: an mDNS pairing id (`83DEE99F-...`) falls back to the resolved host name
+- Discover: an mDNS pairing id (`0A1B2C3D-...`) falls back to the resolved host name
   instead of becoming a node label
 - Discover: a multi-homed box (wifi + ethernet) is one candidate, not two
 - Collector is gated: full pace with the panel open, `batteryIntervalSec` on battery

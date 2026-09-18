@@ -214,18 +214,18 @@ def test_neigh_candidates_prefer_ptr_name_over_bare_ip() -> None:
 def test_opaque_pairing_id_falls_back_to_host() -> None:
     from discover_lib import is_opaque_label, mdns_candidates
 
-    assert is_opaque_label("83DEE99F-B526-470F-9D1B-16EC01196A2C")
-    assert not is_opaque_label("fnix")
+    assert is_opaque_label("0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9")
+    assert not is_opaque_label("laptop")
     assert not is_opaque_label("Living Room TV")
 
     # a uuid instance name with a resolved host shows the host instead
-    recs = [{"name": "83DEE99F-B526-470F-9D1B-16EC01196A2C", "type": "_http._tcp",
-             "host": "spike-iphone", "ip": "10.0.0.153"}]
+    recs = [{"name": "0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9", "type": "_http._tcp",
+             "host": "handset", "ip": "10.0.0.153"}]
     rows = mdns_candidates(recs, {})
-    assert len(rows) == 1 and rows[0]["label"] == "spike-iphone"
+    assert len(rows) == 1 and rows[0]["label"] == "handset"
 
     # and is dropped entirely when there is nothing else to call it
-    recs2 = [{"name": "83DEE99F-B526-470F-9D1B-16EC01196A2C", "type": "_http._tcp",
+    recs2 = [{"name": "0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9", "type": "_http._tcp",
               "host": None, "ip": "10.0.0.154"}]
     assert mdns_candidates(recs2, {}) == []
 
@@ -234,9 +234,9 @@ def test_multihomed_host_is_one_device() -> None:
     """Same box on wifi and ethernet: two IPs, two MACs, one name."""
     from discover_lib import merge_discover
 
-    wifi = {"source": "mdns", "type": "machine", "label": "fnix", "host": "fnix",
+    wifi = {"source": "mdns", "type": "machine", "label": "laptop", "host": "laptop",
             "ip": "10.0.0.213", "mac": "aa:bb:cc:dd:ee:01"}
-    wired = {"source": "mdns", "type": "machine", "label": "fnix", "host": "fnix",
+    wired = {"source": "mdns", "type": "machine", "label": "laptop", "host": "laptop",
              "ip": "10.0.0.124", "mac": "aa:bb:cc:dd:ee:02"}
     rows = merge_discover([wifi, wired], known={"ips": set(), "macs": set(), "hosts": set()})
     assert len(rows) == 1, rows

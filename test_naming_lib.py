@@ -7,45 +7,45 @@ from naming_lib import friendly_name, is_identifier, is_randomized_mac, is_seria
 
 def test_sonos_room_is_the_name() -> None:
     """The owner already named it. That name was hiding after the '@'."""
-    got = friendly_name(label="RINCON_5CAAFD26F5E201400@Living Room",
-                        ip="10.0.0.127", mac="5c:aa:fd:26:f5:e2", services=["_sonos._tcp"])
-    assert got["name"] == "Living Room"
+    got = friendly_name(label="RINCON_AABBCCDDEE0101400@Kitchen",
+                        ip="10.0.0.127", mac="aa:bb:cc:dd:ee:01", services=["_sonos._tcp"])
+    assert got["name"] == "Kitchen"
     assert got["kind"] == "Sonos"
-    assert got["raw"] == "RINCON_5CAAFD26F5E201400@Living Room"
+    assert got["raw"] == "RINCON_AABBCCDDEE0101400@Kitchen"
 
 
 def test_sonos_without_a_room_falls_back_to_the_kind() -> None:
-    got = friendly_name(label="sonosRINCON_5CAAFD15955901400", ip="10.0.0.127",
-                        mac="5c:aa:fd:15:95:59", services=["_sonos._tcp"])
+    got = friendly_name(label="sonosRINCON_AABBCCDDEE0201400", ip="10.0.0.127",
+                        mac="aa:bb:cc:dd:ee:02", services=["_sonos._tcp"])
     assert got["name"] == "Sonos" and got["raw"].startswith("sonosRINCON_")
 
 
 def test_a_real_hostname_wins() -> None:
-    got = friendly_name(label="VIC", host="vic", ip="10.0.0.239",
+    got = friendly_name(label="NAS", host="nas", ip="10.0.0.239",
                         services=["_smb._tcp", "_kdeconnect._udp"])
-    assert got["name"] == "vic"
+    assert got["name"] == "nas"
     assert got["kind"] == "Linux desktop"
     assert got["raw"] == "", "a real name has no identifier to hide"
 
 
 def test_uuid_label_never_leads() -> None:
-    got = friendly_name(label="83DEE99F-B526-470F-9D1B-16EC01196A2C", ip="10.0.0.153",
+    got = friendly_name(label="0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9", ip="10.0.0.153",
                         services=["_apple-mobdev2._tcp"])
     # class-only name, so it carries the octet to stay distinguishable
     assert got["name"] == "iPhone / iPad .153"
     assert got["kind"] == "iPhone / iPad"
-    assert got["raw"] == "83DEE99F-B526-470F-9D1B-16EC01196A2C"
+    assert got["raw"] == "0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9"
 
 
 def test_serial_tail_is_stripped() -> None:
     assert is_serialish("X02500VWG236")
-    assert not is_serialish("vic")
-    assert not is_serialish("Living Room")
-    got = friendly_name(label="Android_R5UE8DLF", ip="10.0.0.139",
+    assert not is_serialish("nas")
+    assert not is_serialish("Kitchen")
+    got = friendly_name(label="Android_A1B2C3D4E", ip="10.0.0.139",
                         services=["_androidtvremote2._tcp"])
     assert got["name"] == "Android"
     assert got["kind"] == "Android TV"
-    assert got["raw"] == "Android_R5UE8DLF"
+    assert got["raw"] == "Android_A1B2C3D4E"
 
 
 def test_class_only_names_carry_the_octet() -> None:
@@ -81,9 +81,9 @@ def test_randomized_mac_is_flagged() -> None:
 def test_is_identifier() -> None:
     assert is_identifier("10.0.0.5")
     assert is_identifier("d8:b3:70:99:ce:bf")
-    assert is_identifier("83DEE99F-B526-470F-9D1B-16EC01196A2C")
-    assert not is_identifier("vic")
-    assert not is_identifier("Living Room")
+    assert is_identifier("0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9")
+    assert not is_identifier("nas")
+    assert not is_identifier("Kitchen")
 
 
 def test_name_key_prefers_mac_over_address() -> None:
@@ -125,9 +125,9 @@ def test_apply_name_follows_the_box_to_a_new_address() -> None:
 def test_apply_name_is_a_noop_without_an_override() -> None:
     from naming_lib import apply_name
 
-    row = {"label": "fnix", "mac": "6c:6e:07:1e:75:3c"}
+    row = {"label": "laptop", "mac": "aa:bb:cc:dd:ee:03"}
     apply_name(row, {})
-    assert row["label"] == "fnix" and "renamed" not in row
+    assert row["label"] == "laptop" and "renamed" not in row
 
 
 
