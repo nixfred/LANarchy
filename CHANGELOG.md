@@ -3,6 +3,16 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.15.1 - 2026-09-17
+
+- **The way out is just a chain now.** Gone: the full-height vertical line down
+  the middle of the map, the ROUTER caption, the INTERNAL and EXTERNAL captions,
+  and the container drawn around the gateway and Internet cards. The picture is
+  already ordered left to right, so a line separating two halves of it was
+  furniture
+- The gateway and Internet are ordinary cards, the same height and shape as every
+  machine, because that is what they are: two more nodes in the chain
+
 ## 0.15.0 - 2026-09-17
 
 - **Ignore looked broken because nothing happened when you clicked it.** The

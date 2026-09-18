@@ -438,7 +438,9 @@ Panel {
   // directly below it once the band wraps to a second row.
   property var mapColumnGaps: []
   property real mapEgressY: 0
-  readonly property real mapEgressH: Style.space(124)
+  // Same height as a machine card. The gateway and the internet are two more
+  // nodes in the chain, not a special exhibit that needs its own proportions.
+  readonly property real mapEgressH: root.mapCardH
   property real mapSplitX: 0
   property real mapBarWidth: 0
   property bool mapHasExternal: false
@@ -1287,9 +1289,7 @@ Panel {
       var wanW = rightW - Style.space(64)
       place(root.wan, "internet", w - wanW - Style.space(12), root.mapEgressY,
             wanW, root.mapEgressH, "cloud",
-            String(root.wan.status || "unknown").toUpperCase() + "  ·  RTT " + root.rttText(root.wan)
-              + "\n" + (root.wan.public_ip || "Public IP unavailable")
-              + "\nWAN traffic unmeasured", [])
+            root.wanMetric(), [])
     }
 
     if (externals.length) {
@@ -3503,63 +3503,10 @@ Panel {
             onHeightChanged: root.recalcMapLayout()
             clip: true
 
-            // A narrow boundary passes through the gateway, rather than
-            // enclosing a floating card in an empty full-height container.
-            Rectangle {
-              id: routerBar
-              visible: root.mapHasExternal && root.mapBarWidth > 0
-              x: root.mapSplitX + root.mapBarWidth / 2 - width / 2
-              y: Style.space(28)
-              width: Style.space(2)
-              height: parent.height - Style.space(40)
-              color: Qt.alpha(Color.accent, 0.22)
-            }
-            Text {
-              visible: root.mapHasExternal
-              x: root.mapSplitX
-              y: Style.space(6)
-              width: root.mapBarWidth
-              horizontalAlignment: Text.AlignHCenter
-              text: "ROUTER"
-              color: root.inkDim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.letterSpacing: 1.4
-              font.bold: true
-            }
-            Rectangle {
-              visible: root.gateway !== null && root.wan !== null
-              x: root.mapSplitX
-              y: root.mapEgressY - Style.space(8)
-              width: parent.width - x - Style.space(4)
-              height: root.mapEgressH + Style.space(16)
-              radius: Style.space(18)
-              color: Qt.alpha(Color.accent, 0.045)
-              border.color: Qt.alpha(Color.accent, 0.16)
-            }
-
-              Text {
-              visible: root.mapHasExternal
-              x: Style.space(10)
-              y: Style.space(6)
-              text: "INTERNAL"
-              color: root.themeGreen
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.letterSpacing: 1.2
-              font.bold: true
-            }
-            Text {
-              visible: root.mapHasExternal
-              x: root.mapSplitX + root.mapBarWidth + Style.space(10)
-              y: Style.space(6)
-              text: "EXTERNAL"
-              color: Color.accent
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.letterSpacing: 1.2
-              font.bold: true
-            }
+            // No vertical divider and no zone captions. The chain reads
+            // left to right on its own: machines, then the gateway they go
+            // through, then the internet. A full-height line separating two
+            // halves of a picture that is already ordered is just furniture.
 
             // One property animation drives every packet. Nothing repaints the
             // canvas per frame any more: the routes only change when the layout,
