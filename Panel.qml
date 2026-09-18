@@ -418,6 +418,9 @@ Panel {
   readonly property int mapCardH: Style.space(94)
   // What recalcMapLayout says the map needs; the popup follows it.
   property real mapContentHeight: Style.space(460)
+  // A clear horizontal lane below the machine grid. Machine uplinks run in
+  // it instead of cutting across the cards between them.
+  property real mapGutterY: 0
   property real mapSplitX: 0
   property real mapBarWidth: 0
   property bool mapHasExternal: false
@@ -562,7 +565,10 @@ Panel {
       var rowB = root.glanceRowById(e.to)
       var flow = root.edgeFlow(rowA, rowB)
       var kind = String(e.kind || "")
-      var pts = root.mapEdgePoints(aBox, bBox, barMidX, kind)
+      var pts = null
+      if (kind === "lan" && root.machineById(String(e.from || "")))
+        pts = root.machineUplinkPoints(aBox, bBox)
+      if (!pts) pts = root.mapEdgePoints(aBox, bBox, barMidX, kind)
       var len = root.polylineLength(pts)
       if (!(len > 0)) continue
       // A dead endpoint should not look like it is carrying traffic.
@@ -596,6 +602,48 @@ Panel {
 
   // Orthogonal route between two cards as a point list. Canvas strokes it and the
   // travelling packets walk it, so both read the same geometry from one place.
+  // A machine's uplink leaves the bottom of its card, drops into the clear lane
+  // under the whole machine grid, and only then runs sideways to the gateway.
+  // The generic orthogonal router picks a mid-gap corridor, which was fine when
+  // machines were a single row; once the band wraps, that corridor lands on top
+  // of the row below.
+  function machineUplinkPoints(aBox, bBox) {
+    var laneY = root.mapGutterY
+    var aBottom = aBox.y + aBox.h
+    if (!(laneY > aBottom + 2)) return null
+
+    var aCx = aBox.x + aBox.w / 2
+    var enterX = bBox.x + bBox.w / 2
+    var enterY = bBox.y
+    var side = "top"
+    // Approach the gateway from whichever face actually points at the lane.
+    if (bBox.y > laneY) {
+      enterY = bBox.y
+    } else if (bBox.y + bBox.h < laneY) {
+      enterY = bBox.y + bBox.h
+      side = "bottom"
+    } else {
+      enterX = aCx < bBox.x ? bBox.x : bBox.x + bBox.w
+      enterY = laneY
+      side = "side"
+    }
+
+    var pts = [{ x: aCx, y: aBottom }, { x: aCx, y: laneY }]
+    if (side === "side") {
+      pts.push({ x: enterX, y: laneY })
+    } else {
+      pts.push({ x: enterX, y: laneY })
+      pts.push({ x: enterX, y: enterY })
+    }
+    return pts
+  }
+
+  function machineById(id) {
+    for (var i = 0; i < root.machines.length; i++)
+      if (String(root.machines[i].id || "") === String(id)) return root.machines[i]
+    return null
+  }
+
   function mapEdgePoints(aBox, bBox, barMidX, kind) {
     var aCx = aBox.x + aBox.w / 2
     var aCy = aBox.y + aBox.h / 2
@@ -866,10 +914,15 @@ Panel {
 
   // Always include settings (even {}) so inventory_cli does not merge stale on-disk keys.
   function inventoryWritePayload(nodes, settings) {
+    // Overrides ride along on every write. The CLI also preserves them when
+    // absent, but sending what the panel currently holds keeps the file and the
+    // UI from drifting apart.
     return {
       schemaVersion: 2,
       nodes: nodes,
-      settings: settings && typeof settings === "object" ? settings : {}
+      settings: settings && typeof settings === "object" ? settings : {},
+      ignored: root.invIgnored instanceof Array ? root.invIgnored : [],
+      names: root.invNames instanceof Array ? root.invNames : []
     }
   }
 
@@ -1100,6 +1153,7 @@ Panel {
     var machines = root.internalMachines(router)
     var machineBandBottom = colBand(machines, root.osSubline, Style.space(28), "machine",
                                     root.machineMetric, null, 0, leftW)
+    root.mapGutterY = machineBandBottom + Style.space(12)
 
     // Prefer redUltra on the router bar; only fall back to Caddy there when no router machine.
     // Never place the same hub id twice (left gateway + bar).

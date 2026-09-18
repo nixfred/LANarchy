@@ -3,6 +3,19 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.9.2 - 2026-09-17
+
+- **Edges no longer cut through the cards.** A machine's uplink now leaves the
+  bottom of its card, drops into a clear lane under the whole machine grid, and
+  only then runs sideways to the gateway. The generic orthogonal router picks a
+  mid-gap corridor, which was correct while machines were one row and landed on
+  top of the row below once the band started wrapping
+- **Fixed: dismissals and renames were destroyed by the next ordinary save.**
+  `inventory_cli write` preserved `settings` and `edges` when a payload omitted
+  them but not `ignored` and `names`, and the panel never sent them, so removing
+  a device or renaming a box was silently undone as soon as anything else was
+  saved
+
 ## 0.9.1 - 2026-09-17
 
 - CPython's `__pycache__` no longer lands in the plugin tree either. Importing any

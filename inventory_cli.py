@@ -69,7 +69,10 @@ def cmd_write(path: Path, json_file: Path) -> int:
         return 1
     if path.exists():
         current = load_inventory(path)
-        for key in ("settings", "edges"):
+        # Overrides are preserved exactly like settings/edges. Omitting them
+        # used to erase them, so dismissing a device or renaming a box was
+        # silently undone by the next ordinary save.
+        for key in ("settings", "edges", "ignored", "names"):
             if key not in raw and key in current:
                 raw[key] = current[key]
     inv = normalize_inventory(raw)
