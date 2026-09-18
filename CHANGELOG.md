@@ -3,6 +3,21 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.15.0 - 2026-09-17
+
+- **Ignore looked broken because nothing happened when you clicked it.** The
+  write was correct, but the on-screen lists are only replaced when the next
+  snapshot arrives, so the row sat there for up to a full probe interval. Ignore
+  and adopt now drop the row immediately
+- The **Ignored (N)** drawer counts what the panel holds rather than what the
+  last snapshot said, so it updates the moment you act
+- **Restore all** existed as a function with nothing able to call it. It has a
+  button now, shown when more than one device is ignored
+- **Rename from the Devices drawer**, in place, without finding the card first
+- Device management is scriptable: `ignore <mac>`, `restore <mac>`,
+  `rename <mac> <name>`, `overrides`. These call the same functions the buttons
+  do, so testing them tests the real path
+
 ## 0.14.0 - 2026-09-17
 
 - **The way out of the LAN is drawn properly.** The gateway used to float inside

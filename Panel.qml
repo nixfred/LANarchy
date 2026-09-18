@@ -94,6 +94,9 @@ Panel {
   property var invNames: []
   property bool ignoredOpen: false
   property int ignoredCount: 0
+  // What the panel holds right now. ignoredCount comes from the last snapshot
+  // and lags a probe behind every change the user just made.
+  readonly property var ignoredList: root.invIgnored instanceof Array ? root.invIgnored : []
   property var flaps: ({})
   property var invSettings: ({})
   property var invIgnored: []
@@ -2034,6 +2037,9 @@ Panel {
   // being announced: the ledger treats anything curated as dealt with.
   function adoptNewDevice(row) {
     if (!row) return
+    // It is about to become an inventory node; it should stop being an arrival
+    // the moment you say so, not one probe later.
+    root.forgetRowLocally(row.mac, row.ip)
     root.addDiscovered({
       type: "machine",
       label: String(row.label || row.mac || "device"),
@@ -2042,6 +2048,38 @@ Panel {
       host: null,
       source: "new"
     })
+  }
+
+  // Find any row the panel currently knows about by hardware address.
+  // Rename a device straight from the drawer, without hunting for its card.
+  function beginDeviceRename(row) {
+    if (!row || !row.mac) return
+    root.editingId = "dev:" + String(row.mac).toLowerCase()
+    root.editingText = String(row.label || "")
+  }
+
+  function commitDeviceRename() {
+    var id = root.editingId
+    if (id.indexOf("dev:") !== 0) return
+    var mac = id.substring(4)
+    var label = String(root.editingText || "").trim()
+    root.editingId = ""
+    if (!label) return
+    root.rememberName({ mac: mac }, label)
+    root.writeInventoryWithOverrides(root.invIgnored, root.invNames)
+  }
+
+  function rowByMac(mac) {
+    var key = String(mac || "").toLowerCase().replace(/-/g, ":")
+    if (key.length !== 17) return null
+    var bands = [root.newDevices, root.devices, root.machines, root.lan, root.quietLan]
+    for (var b = 0; b < bands.length; b++) {
+      var band = bands[b]
+      if (!(band instanceof Array)) continue
+      for (var i = 0; i < band.length; i++)
+        if (String(band[i].mac || "").toLowerCase() === key) return band[i]
+    }
+    return null
   }
 
   function ignoreDevice(row) {
@@ -2061,7 +2099,34 @@ Panel {
     }
     next.push(entry)
     root.invIgnored = next
+
+    // Drop it from view now. The models are only replaced when the next
+    // snapshot lands, up to a full probe interval away, so without this the row
+    // sits there after you click and the button looks broken.
+    root.forgetRowLocally(entry.mac, entry.ip)
     root.writeInventoryWithOverrides(next, root.invNames)
+  }
+
+  // Remove a device from the lists that are on screen right now.
+  function forgetRowLocally(mac, ip) {
+    var key = String(mac || "").toLowerCase()
+    var addr = String(ip || "")
+
+    function without(list) {
+      if (!(list instanceof Array)) return list
+      var out = []
+      for (var i = 0; i < list.length; i++) {
+        var m = String(list[i].mac || "").toLowerCase()
+        var a = String(list[i].ip || "")
+        if ((key && m === key) || (!key && addr && a === addr)) continue
+        out.push(list[i])
+      }
+      return out
+    }
+
+    root.newDevices = without(root.newDevices)
+    root.devices = without(root.devices)
+    root.machines = without(root.machines)
   }
 
   function restoreIgnored(index) {
@@ -2970,6 +3035,43 @@ Panel {
     }
 
     function barDisplay(mode: string): void { root.setBarDisplay(String(mode || "downs")) }
+
+    // Device management, scriptable. These are the same functions the buttons
+    // call, so exercising them here exercises the real path rather than a copy.
+    function ignore(mac: string): string {
+      var row = root.rowByMac(mac)
+      if (!row) return "no device with mac " + mac
+      root.ignoreDevice(row)
+      return "ignored " + String(row.label || mac)
+    }
+
+    function restore(mac: string): string {
+      var key = String(mac || "").toLowerCase()
+      for (var i = 0; i < root.invIgnored.length; i++) {
+        if (String(root.invIgnored[i].mac || "").toLowerCase() === key) {
+          root.restoreIgnored(i)
+          return "restored " + key
+        }
+      }
+      return "not ignored: " + key
+    }
+
+    function rename(mac: string, label: string): string {
+      var row = root.rowByMac(mac)
+      if (!row) return "no device with mac " + mac
+      root.renameRow(row, String(label || ""))
+      return "renamed to " + label
+    }
+
+    function overrides(): string {
+      return JSON.stringify({
+        ignored: root.invIgnored,
+        names: root.invNames,
+        ready: root.inventoryReady,
+        loading: root.inventoryLoading,
+        nodes: root.nodes.length
+      })
+    }
 
     function version(): string { return root.pluginVersion }
 
@@ -4038,7 +4140,7 @@ Panel {
               Column {
                 width: parent.width
                 spacing: Style.space(4)
-                visible: root.devices.length > 0 || root.ignoredCount > 0
+                visible: root.devices.length > 0 || root.ignoredList.length > 0
 
                 Row {
                   width: parent.width
@@ -4049,10 +4151,17 @@ Panel {
                     onTapped: root.devicesOpen = !root.devicesOpen
                   }
                   SegBtn {
-                    visible: root.ignoredCount > 0
-                    label: (root.ignoredOpen ? "▾ " : "▸ ") + "Ignored (" + root.ignoredCount + ")"
+                    visible: root.ignoredList.length > 0
+                    label: (root.ignoredOpen ? "▾ " : "▸ ") + "Ignored (" + root.ignoredList.length + ")"
                     active: root.ignoredOpen
                     onTapped: root.ignoredOpen = !root.ignoredOpen
+                  }
+                  SegBtn {
+                    // restoreAllIgnored() existed with nothing able to call it.
+                    visible: root.ignoredOpen && root.ignoredList.length > 1
+                    label: "Restore all"
+                    active: false
+                    onTapped: root.restoreAllIgnored()
                   }
                 }
 
@@ -4103,6 +4212,17 @@ Panel {
                           font.pixelSize: Style.font.caption
                         }
                         Text {
+                          text: "rename"
+                          color: root.muted
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.beginDeviceRename(deviceRow.modelData)
+                          }
+                        }
+                        Text {
                           text: "remove"
                           color: root.muted
                           font.family: root.fontFamily
@@ -4134,7 +4254,7 @@ Panel {
                     width: parent.width
                     spacing: Style.space(2)
                     Repeater {
-                      model: root.invIgnored
+                      model: root.ignoredList
                       delegate: Row {
                         id: ignoredRow
                         required property var modelData
