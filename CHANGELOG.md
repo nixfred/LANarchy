@@ -3,6 +3,28 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.12.0 - 2026-09-17
+
+- **New device alarm.** Lanarchy remembers every MAC it has ever seen. Hardware
+  that turns up later is announced once, appears in a **NEW ON YOUR NETWORK**
+  tray with its name, address, kind and how long ago it arrived, and offers
+  **adopt** or **ignore**. Turns the plugin into a quiet tripwire
+  - The **first run is a baseline, not an alarm**. Everything is new the first
+    time you look at a network, and announcing all of it is how a tripwire
+    becomes noise that gets muted on day one
+  - A device must be seen twice before it counts, so a one-off ARP entry is not
+    an arrival, and each arrival is announced exactly once
+  - Anything already in the inventory or dismissed is not news
+  - Turn it off with `settings.newDeviceNotify: false`
+- **UniFi devices are on the map.** With an API key, access points and switches
+  are named and given their role from the controller, so an access point stops
+  being an anonymous address
+- The Internet node carries the **real public IP**, taken from the gateway's WAN
+  address, instead of only a latency figure
+- A device the controller reports as `OFFLINE` while it is demonstrably
+  reachable is now treated as **unknown**, not down, and the collector's own
+  probe decides. Drawing a working access point as dead is worse than saying so
+
 ## 0.11.0 - 2026-09-17
 
 - **The running version is on screen.** `LANARCHY v0.11.0` in the panel header,

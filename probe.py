@@ -38,6 +38,7 @@ from inventory_lib import (
 from naming_lib import apply_name, name_key
 from notify_lib import process_probe_glance
 from os_lib import identify
+from seen_lib import load_ledger, observe, prune, recent_arrivals, save_ledger
 from plugin_paths import (
     atomic_write_json,
     ensure_user_inventory,
@@ -451,6 +452,14 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             "rtt_ms": wan_rtt,
             "via": gw["ip"],
         }
+        # The controller reports the gateway's WAN address. That is the real
+        # public IP, unlike the LAN counters that used to be labelled "WAN".
+        for dev in unifi.get("devices") or []:
+            if str(dev.get("kind") or "") == "gateway" and dev.get("ip"):
+                addr = str(dev["ip"])
+                if not addr.startswith(("10.", "192.168.", "172.")):
+                    wan["public_ip"] = addr
+                break
         totals = {"rx_bps": 0.0, "tx_bps": 0.0, "measured": False}
         for row in machines:
             rates = row.get("rates")
@@ -465,6 +474,28 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
     # A discovered box you have not curated still shows up, and a device you
     # dismissed stays dismissed because the dismissal is keyed by hardware.
     candidates = merge_discover(found, unifi.get("discover") or [], known=known_targets(nodes, hist))
+
+    # The controller names its own hardware and states its role. A candidate that
+    # matches one by MAC is an access point or a switch, not an anonymous address.
+    gear_by_mac = {}
+    for dev in unifi.get("devices") or []:
+        mac = str(dev.get("mac") or "").lower()
+        if mac:
+            gear_by_mac[mac] = dev
+    ROLE_LABEL = {"ap": "Access Point", "switch": "Switch", "gateway": "Gateway"}
+    for cand in candidates:
+        dev = gear_by_mac.get(str(cand.get("mac") or "").lower())
+        if not dev:
+            continue
+        if dev.get("name"):
+            cand["label"] = str(dev["name"])
+        role = ROLE_LABEL.get(str(dev.get("kind") or ""))
+        if role:
+            cand["deviceKind"] = role
+        if dev.get("model"):
+            cand["model"] = str(dev["model"])
+        cand["type"] = "machine"
+        cand["unifiGear"] = True
     dismissed = ignored_keys(inv)
     renamed = name_overrides(inv)
     chosen_names = renamed
@@ -505,6 +536,25 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             row["status"] = "seen"
             device_rows.append(row)
 
+    # Has this hardware ever been on the network before? Everything observed
+    # this pass goes in the ledger; anything whose first sighting is recent and
+    # that the user has not already dealt with is an arrival.
+    ledger = load_ledger()
+    observed = list(candidates) + [r for r in machines + host_rows + proxies if r.get("mac")]
+    observe(ledger, observed)
+    prune(ledger)
+    save_ledger(ledger)
+
+    acknowledged = set(dismissed)
+    for node in nodes:
+        m = str(node.get("mac") or "")
+        if m:
+            acknowledged.add("mac:" + m.lower())
+    arrivals_now = [
+        row for row in recent_arrivals(ledger)
+        if ("mac:" + row["mac"]) not in acknowledged
+    ]
+
     by_id: dict[str, dict] = {}
     for row in machines + host_rows + proxies:
         by_id[str(row.get("id") or "")] = row
@@ -525,6 +575,7 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         "ignored_count": len(dismissed),
         "gateway": gateway,
         "wan": wan,
+        "new_devices": arrivals_now,
         "events": recent_events(hist, 6),
         "flaps": flap_counts(hist, 1.0),
     }

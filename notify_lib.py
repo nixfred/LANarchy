@@ -176,9 +176,41 @@ def process_probe_glance(
                 )
             )
     sent = apply_status_updates(state, inv, updates)
+    sent.extend(apply_arrival_alerts(inv, glance))
     sent.extend(apply_unknown_neighbor_alerts(state, inv, glance))
     save_notify_state(state, state_path)
     return {"notified": sent}
+
+
+def apply_arrival_alerts(inv: dict, glance: dict) -> list[dict[str, Any]]:
+    """Announce hardware that has never been on this network before.
+
+    The ledger has already decided what counts as an arrival: seen more than
+    once, after the baseline pass, and not something the user has dealt with. So
+    this only has to say it well.
+    """
+    settings = inv.get("settings") if isinstance(inv.get("settings"), dict) else {}
+    if settings.get("newDeviceNotify") is False:
+        return []
+    arrivals = glance.get("new_devices")
+    if not isinstance(arrivals, list) or not arrivals:
+        return []
+
+    sent: list[dict[str, Any]] = []
+    for row in arrivals:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("label") or row.get("mac") or "device")
+        where = " · ".join(p for p in (str(row.get("ip") or ""), str(row.get("mac") or "")) if p)
+        kind = str(row.get("kind") or "")
+        title = f"Lanarchy: new on your network · {name}"
+        body = where if not kind else f"{kind} · {where}"
+        if row.get("randomized"):
+            body += " · randomized MAC"
+        _send_notification(title, body)
+        sent.append({"id": str(row.get("mac") or ""), "title": title, "body": body,
+                     "kind": "new_device"})
+    return sent
 
 
 def apply_unknown_neighbor_alerts(state: dict, inv: dict, glance: dict) -> list[dict[str, Any]]:

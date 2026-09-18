@@ -311,22 +311,39 @@ def _pick_site_id(payload: Any, wanted: str) -> str | None:
 
 
 def _project_device(row: dict) -> dict[str, Any]:
+    # This firmware reports OFFLINE for gear that is demonstrably reachable, so a
+    # reported state is only believed when it says something is up. "down" from
+    # the controller becomes "unknown" and the collector's own probe decides:
+    # drawing a working access point as dead is worse than saying we are unsure.
     state_raw = row.get("state") if "state" in row else row.get("status")
-    if state_raw in (1, "1", "CONNECTED", "connected", "online", "up"):
+    if state_raw in (1, "1", "CONNECTED", "connected", "online", "up", "ONLINE"):
         state = "up"
-    elif state_raw in (0, "0", "DISCONNECTED", "disconnected", "offline", "down"):
-        state = "down"
+    elif row.get("adopted") is False:
+        state = "unknown"
     else:
-        state = "up" if row.get("adopted") is not False else "unknown"
+        state = "unknown"
     name = str(row.get("name") or row.get("model") or row.get("mac") or "device")
-    kind = str(row.get("type") or row.get("model") or "device").lower()
+    # The integration API states the role outright; fall back to the model name.
+    features = row.get("features")
+    if isinstance(features, list) and features:
+        feats = {str(f).lower() for f in features}
+        if "gateway" in feats or "switching" in feats and "accesspoint" in feats:
+            kind = "gateway"
+        elif "accesspoint" in feats:
+            kind = "ap"
+        elif "switching" in feats:
+            kind = "switch"
+        else:
+            kind = str(row.get("model") or "device").lower()
+    else:
+        kind = str(row.get("type") or row.get("model") or "device").lower()
     if "uap" in kind or "ap" in kind:
         kind = "ap"
     elif "usw" in kind or "switch" in kind:
         kind = "switch"
     elif any(x in kind for x in ("ugw", "udm", "ucg", "uxg", "gateway")):
         kind = "gateway"
-    mac = fmt_mac(str(row.get("mac") or ""))
+    mac = fmt_mac(str(row.get("mac") or row.get("macAddress") or ""))
     ip = str(row.get("ip") or row.get("ipAddress") or row.get("ip_address") or "") or None
     return {
         "id": str(row.get("id") or row.get("mac") or name),

@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.11.0-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.12.0-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -137,6 +137,24 @@ on a busy LAN includes TVs and phones, so it is the deliberate option rather tha
 the recommended one.
 
 Without UniFi secrets, Search still runs mDNS + ARP with weaker names.
+
+---
+
+## New device alarm
+
+Lanarchy remembers every MAC it has seen. Hardware that shows up later is
+announced once and listed in a **NEW ON YOUR NETWORK** tray with its name,
+address, kind and arrival time, with **adopt** and **ignore**.
+
+| Rule | Why |
+|------|-----|
+| The first run records a baseline silently | Everything is new the first time you look; announcing it all is how a tripwire gets muted on day one |
+| A device must be seen twice | A one-off ARP entry is not an arrival |
+| Announced exactly once | Repeating it is nagging, not alerting |
+| Anything adopted or ignored is dropped | A device you have dealt with is not news |
+
+State lives in `~/.local/state/lanarchy/seen-devices.json`. Disable with
+`settings.newDeviceNotify: false`.
 
 ---
 

@@ -82,6 +82,7 @@ Panel {
   property var discover: []
   property var events: []
   property var devices: []
+  property var newDevices: []
   property var gateway: null
   property var wan: null
   property bool devicesOpen: false
@@ -1318,6 +1319,7 @@ Panel {
     root.unifi = data.unifi && typeof data.unifi === "object" ? data.unifi : {}
     root.discover = data.discover instanceof Array ? data.discover : []
     root.devices = data.devices instanceof Array ? data.devices : []
+    root.newDevices = data.new_devices instanceof Array ? data.new_devices : []
     root.gateway = data.gateway && typeof data.gateway === "object" ? data.gateway : null
     root.wan = data.wan && typeof data.wan === "object" ? data.wan : null
     root.ignoredCount = Number(data.ignored_count) || 0
@@ -1954,6 +1956,20 @@ Panel {
     payload.ignored = ignored || []
     payload.names = names || []
     root.runInventoryWrite(payload)
+  }
+
+  // Adopting an arrival puts it in the inventory, which is also what stops it
+  // being announced: the ledger treats anything curated as dealt with.
+  function adoptNewDevice(row) {
+    if (!row) return
+    root.addDiscovered({
+      type: "machine",
+      label: String(row.label || row.mac || "device"),
+      ip: row.ip ? String(row.ip) : null,
+      mac: row.mac ? String(row.mac) : null,
+      host: null,
+      source: "new"
+    })
   }
 
   function ignoreDevice(row) {
@@ -3900,6 +3916,109 @@ Panel {
                   metric: root.serviceMetric(modelData)
                   lights: root.serviceLights(modelData)
                   hoverTip: root.listRowTooltip(modelData)
+                }
+              }
+
+              // Hardware that has never been on this network before. The ledger
+              // has already ruled out the first-run baseline, one-off ARP blips
+              // and anything already dealt with, so every row here is an actual
+              // arrival worth a second of attention.
+              Column {
+                width: parent.width
+                spacing: Style.space(4)
+                visible: root.newDevices.length > 0
+
+                Rectangle {
+                  width: parent.width
+                  implicitHeight: newHead.implicitHeight + Style.space(10)
+                  radius: Style.space(6)
+                  color: Qt.alpha(root.themeYellow, 0.10)
+                  border.width: 1
+                  border.color: Qt.alpha(root.themeYellow, 0.45)
+                  Row {
+                    id: newHead
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.leftMargin: Style.space(10)
+                    spacing: Style.space(8)
+                    Text {
+                      text: "NEW ON YOUR NETWORK"
+                      color: root.themeYellow
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                      font.letterSpacing: 1.2
+                    }
+                    Text {
+                      text: root.newDevices.length + (root.newDevices.length === 1 ? " device" : " devices")
+                      color: root.muted
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                  }
+                }
+
+                Repeater {
+                  model: root.newDevices
+                  delegate: Row {
+                    id: newRow
+                    required property var modelData
+                    width: parent.width
+                    spacing: Style.space(6)
+                    Text {
+                      width: Style.space(110)
+                      text: String(newRow.modelData.label || newRow.modelData.mac || "device")
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                      elide: Text.ElideRight
+                    }
+                    Text {
+                      width: Style.space(86)
+                      text: String(newRow.modelData.ip || "")
+                      color: root.inkDim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                    Text {
+                      width: Style.space(70)
+                      text: String(newRow.modelData.kind || "")
+                          + (newRow.modelData.randomized ? " · rnd" : "")
+                      color: root.muted
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideRight
+                    }
+                    Text {
+                      text: root.agoText(newRow.modelData.first_seen)
+                      color: root.muted
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                    Text {
+                      text: "adopt"
+                      color: root.themeGreen
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.adoptNewDevice(newRow.modelData)
+                      }
+                    }
+                    Text {
+                      text: "ignore"
+                      color: root.muted
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.ignoreDevice(newRow.modelData)
+                      }
+                    }
+                  }
                 }
               }
 
