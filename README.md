@@ -365,7 +365,18 @@ Deeper sidecar formats: [`docs/architecture.md`](docs/architecture.md).
 
 ## Versions
 
-Version lives in **`manifest.json`** only. Releases bump it, add a [CHANGELOG.md](CHANGELOG.md) entry, and should be tagged `vX.Y.Z`.
+Version lives in **`manifest.json`** only, and the panel reads it from there at
+runtime, so what you see is what shipped. Find yours in three places:
+
+| Where | How |
+|-------|-----|
+| Panel header | `LANARCHY v0.10.0` beside the title |
+| Bar tooltip | hover the castle icon |
+| Shell | `omarchy-shell lanarchy version` |
+
+Every user-visible change bumps `version` in the same commit, adds a
+[CHANGELOG.md](CHANGELOG.md) entry under that version, and updates the badge
+above. Releases should be tagged `vX.Y.Z`.
 
 ---
 

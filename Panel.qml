@@ -40,6 +40,10 @@ Panel {
   // plugin directory and hot-reloads on any change, so writing the snapshot and
   // a heartbeat in there reloaded the plugin roughly once a second. Must match
   // plugin_paths.state_dir().
+  // The running version, read from the manifest. Users need to be able to say
+  // which build they are on without digging through files.
+  property string pluginVersion: ""
+
   readonly property string stateDir: {
     var xdg = String(Quickshell.env("XDG_STATE_HOME") || "")
     var base = xdg !== "" ? xdg : (String(Quickshell.env("HOME") || "") + "/.local/state")
@@ -82,6 +86,9 @@ Panel {
   property var wan: null
   property bool devicesOpen: false
   property bool renaming: false
+  // Inline rename, on the card itself.
+  property string editingId: ""
+  property string editingText: ""
   property var invNames: []
   property bool ignoredOpen: false
   property int ignoredCount: 0
@@ -1882,6 +1889,29 @@ Panel {
     root.invNames = names
   }
 
+  function beginInlineEdit(nodeId, current) {
+    if (!nodeId || nodeId === "__lan__") return
+    root.mapSelectedId = nodeId
+    root.editingText = String(current || "")
+    root.editingId = String(nodeId)
+  }
+
+  function cancelInlineEdit() {
+    root.editingId = ""
+    root.editingText = ""
+  }
+
+  function commitInlineEdit() {
+    var id = root.editingId
+    var label = String(root.editingText || "").trim()
+    root.editingId = ""
+    if (!id || !label) return
+    var row = root.glanceRowById(id)
+    if (!row) return
+    if (String(row.label || "") === label) return
+    root.renameRow(row, label)
+  }
+
   function renameRow(row, newLabel) {
     var label = String(newLabel || "").trim()
     if (!row || !label) {
@@ -2029,6 +2059,20 @@ Panel {
       root.view = "glance"
       root.formFieldFocused = false
       root.renaming = false
+      root.cancelInlineEdit()
+    }
+  }
+
+  FileView {
+    id: manifestFile
+    path: root.pluginDir + "/manifest.json"
+    printErrors: false
+    onLoaded: {
+      try {
+        root.pluginVersion = String(JSON.parse(text()).version || "")
+      } catch (e) {
+        root.pluginVersion = ""
+      }
     }
   }
 
@@ -2572,14 +2616,49 @@ Panel {
           font.pixelSize: Style.font.bodySmall
           Layout.preferredWidth: Style.space(12)
         }
-        Text {
-          text: label
-          color: root.ink
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-          font.bold: true
-          elide: Text.ElideRight
+        // Double-click the name to rename it, right here. Going out to a form
+        // to change one word is too many steps for the most common edit.
+        Item {
           Layout.fillWidth: true
+          implicitHeight: cardName.implicitHeight
+
+          Text {
+            id: cardName
+            anchors.fill: parent
+            visible: root.editingId !== mapBox.nodeId
+            text: mapBox.label
+            color: root.ink
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            font.bold: true
+            elide: Text.ElideRight
+          }
+
+          MouseArea {
+            anchors.fill: parent
+            enabled: !mapBox.isLan && root.editingId !== mapBox.nodeId
+            acceptedButtons: Qt.LeftButton
+            cursorShape: Qt.IBeamCursor
+            onDoubleClicked: root.beginInlineEdit(mapBox.nodeId, mapBox.label)
+            onClicked: mapBox.activated()
+          }
+
+          TextInput {
+            id: cardEdit
+            anchors.fill: parent
+            visible: root.editingId === mapBox.nodeId
+            text: root.editingText
+            color: Color.accent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            font.bold: true
+            selectByMouse: true
+            clip: true
+            onTextChanged: if (visible) root.editingText = text
+            onAccepted: root.commitInlineEdit()
+            Keys.onEscapePressed: root.cancelInlineEdit()
+            onVisibleChanged: if (visible) { selectAll(); forceActiveFocus() }
+          }
         }
       }
 
@@ -2822,6 +2901,8 @@ Panel {
 
     function barDisplay(mode: string): void { root.setBarDisplay(String(mode || "downs")) }
 
+    function version(): string { return root.pluginVersion }
+
     function status(): string {
       if (!root.asOf) return "probing"
       return (root.glanceDownCount > 0 ? root.glanceDownCount + " down" : "all up")
@@ -2843,7 +2924,7 @@ Panel {
     fixedWidth: root.vertical ? -1 : barRow.implicitWidth + Style.space(10)
     fixedHeight: root.vertical ? barRow.implicitHeight + Style.space(10) : -1
     tooltipText: {
-        var lines = ["Lanarchy"]
+        var lines = [root.pluginVersion !== "" ? ("Lanarchy v" + root.pluginVersion) : "Lanarchy"]
         if (root.asOf) {
             lines.push(root.glanceDownCount > 0
                 ? (root.glanceDownCount + " down · " + root.glanceTotalCount + " tracked")
@@ -2919,6 +3000,7 @@ Panel {
       // NOT `enabled`: that propagates down and disables the panel's own text
       // fields and buttons. `blocked` forwards keys to descendants instead.
       blocked: (root.view === "form" && root.formFieldFocused) || root.renaming
+          || root.editingId !== ""
       onCloseRequested: root.navigateBack()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
@@ -3092,13 +3174,23 @@ Panel {
                   font.letterSpacing: 2.5
                   anchors.verticalCenter: parent.verticalCenter
                 }
+                Text {
+                  // Which build am I on. Read from manifest.json, so it can only
+                  // ever be the version that actually shipped.
+                  visible: root.pluginVersion !== ""
+                  text: "v" + root.pluginVersion
+                  color: root.muted
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.verticalCenter: parent.verticalCenter
+                }
               }
               Text {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "2⁄3 INTERNAL · reverse proxy hub · router bar · Flow = measured throughput"
-                        : "Machines → Caddy → services · Flow = measured throughput, a still line is unmeasured")
+                        ? "2⁄3 INTERNAL · router bar · Flow = measured throughput · double-click a name to rename"
+                        : "Machines → gateway → internet · Flow = measured throughput · double-click a name to rename")
                     : "Dash · colour lights · Move to LAN for noise"
                 color: root.inkDim
                 font.family: root.fontFamily
