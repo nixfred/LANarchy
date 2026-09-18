@@ -141,8 +141,12 @@ def decide(
         reason = "panel-open" if at_home else place + " panel-open"
         return {"probe": True, "discover": at_home, "sleep_s": base, "reason": reason}
 
-    # Everything below is panel-closed. Discovery is off regardless; only the
-    # cadence is being chosen, so an unknown network still gets the backoff.
+    # Everything below is panel-closed.
+    #
+    # On your own network, with mains power, keep discovering: otherwise a
+    # desktop that is never opened shows only what was curated by hand, which is
+    # the behaviour this plugin exists to replace. On battery, or anywhere we do
+    # not recognise, it waits until someone is actually looking.
     if battery and s.get("batteryBackoff") is not False:
         idle = _clamp_interval(
             s.get("batteryIntervalSec"), DEFAULT_BATTERY_INTERVAL_S, base, 3600.0
@@ -150,13 +154,24 @@ def decide(
         return {"probe": True, "discover": False, "sleep_s": idle,
                 "reason": "battery panel-closed"}
 
+    if at_home and not battery:
+        closed_mains = s.get("closedIntervalSec")
+        if closed_mains is not None:
+            return {"probe": True, "discover": True,
+                    "sleep_s": _clamp_interval(closed_mains, base, base, 3600.0),
+                    "reason": "panel-closed"}
+        return {"probe": True, "discover": True, "sleep_s": base, "reason": "mains"}
+
     closed = s.get("closedIntervalSec")
     if closed is not None:
         return {"probe": True, "discover": False,
                 "sleep_s": _clamp_interval(closed, base, base, 3600.0),
                 "reason": "panel-closed"}
 
-    return {"probe": True, "discover": False, "sleep_s": base, "reason": "mains"}
+    # Panel closed. At home this is full pace with backoff turned off; anywhere
+    # else the reason names the network, because it is shown and logged.
+    return {"probe": True, "discover": False, "sleep_s": base,
+            "reason": "mains" if at_home else place}
 
 
 GATEWAY_TTL_S = 30.0

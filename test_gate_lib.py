@@ -20,11 +20,18 @@ def decide(settings=None, *, panel=False, battery=None, gw=None):
 
 
 def test_desktop_defaults_unchanged():
-    """No battery → 15s probing, as before. Discovery is a separate decision."""
+    """No battery → 15s probing, as before."""
     d = decide({"homeGatewayMac": HOME}, gw=HOME)
     assert d["probe"] is True
     assert d["sleep_s"] == 15.0
     assert d["reason"] == "mains"
+
+
+def test_reason_never_says_mains_on_a_foreign_network():
+    """The reason is shown to the user and logged; it has to be true."""
+    assert decide({}, panel=False, gw=None)["reason"] == "unknown-network"
+    assert decide({"homeGatewayMac": HOME}, panel=False, battery=None,
+                  gw="ff:ff:ff:ff:ff:ff")["reason"] == "away-network"
 
 
 def test_panel_open_always_full_pace():
@@ -101,8 +108,8 @@ def test_away_network_still_probes_when_user_opens_panel():
 def test_home_network_match_is_case_insensitive():
     d = decide({"homeGatewayMac": HOME.upper()}, gw=HOME)
     assert d["probe"] is True and d["reason"] == "mains"
-    # and hyphen-separated MACs are the same network
-    assert decide({"homeGatewayMac": HOME.replace(":", "-")}, gw=HOME)["discover"] is False
+    # hyphen-separated MACs describe the same network, so this is still home
+    assert decide({"homeGatewayMac": HOME.replace(":", "-")}, gw=HOME)["discover"] is True
 
 
 def test_unknown_gateway_does_not_pause_probing():
@@ -197,11 +204,16 @@ def test_discovery_is_refused_on_a_foreign_network() -> None:
     assert closed["probe"] is False and closed["discover"] is False
 
 
-def test_discovery_only_runs_when_someone_is_looking() -> None:
-    assert decide({"homeGatewayMac": HOME}, panel=True, gw=HOME)["discover"] is True
-    assert decide({"homeGatewayMac": HOME}, panel=False, battery=True, gw=HOME)["discover"] is False
-    assert decide({"homeGatewayMac": HOME, "closedIntervalSec": 60},
-                  panel=False, gw=HOME)["discover"] is False
+def test_discovery_runs_on_your_own_network_or_when_looking() -> None:
+    """A desktop that is never opened should still fill its own map; a laptop on
+    battery should not sweep while nobody is looking."""
+    at_home = {"homeGatewayMac": HOME}
+    assert decide(at_home, panel=True, gw=HOME)["discover"] is True
+    # plugged in, on your own network: keep the map populated
+    assert decide(at_home, panel=False, battery=None, gw=HOME)["discover"] is True
+    assert decide(at_home, panel=False, battery=False, gw=HOME)["discover"] is True
+    # on battery with nobody looking: wait
+    assert decide(at_home, panel=False, battery=True, gw=HOME)["discover"] is False
 
 
 def test_home_network_permits_discovery() -> None:

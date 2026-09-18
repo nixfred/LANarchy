@@ -3,6 +3,16 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.13.1 - 2026-09-17
+
+- A machine on **its own network with mains power keeps discovering** even with
+  the panel closed. 0.13.0 made discovery conditional on someone looking, which
+  meant a desktop that is never opened showed only what had been curated by hand
+  — the behaviour this plugin exists to replace. On battery, or on any network
+  not known to be home, it still waits
+- The gate's reason string never says `mains` on a network it does not
+  recognise. It is shown to the user and written to the log, so it has to be true
+
 ## 0.13.0 - 2026-09-17
 
 Honesty and cost pass. Everything known to be wrong, fixed.
