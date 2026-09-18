@@ -9,6 +9,23 @@ with upstream; he merged five pull requests from this fork and released 0.4.0
 himself. Versions below 1.0.0 in this file are this fork's own numbering from
 before the split, and do not correspond to upstream releases.
 
+## 1.1.0 - 2026-09-18
+
+- **The bar mark is a traffic light again: green, amber, red.** It already took
+  its colour from lab health, but it took the *theme's* green, amber and red, and
+  a theme is free to define colours that are none of those. The palette in use
+  here has green `#708c8b`, yellow `#7b8768` and red `#b9968f` — a grey-teal, a
+  grey-olive and a dusty pink — which at icon size are the same colour, so the
+  one thing the mark exists to answer could not be read at a glance. Saturating
+  the theme's own hue does not rescue it either: `#708c8b` saturates to cyan, not
+  green. These three colours are now fixed, and they are the only part of the
+  plugin that does not follow the theme
+  - **red** — a host is down and not muted
+  - **amber** — something is degraded, the snapshot has gone stale, or the lab
+    is entirely unknown. Not being able to see the lab is not good news
+  - **green** — every host the panel watches answered
+- Muting a host still keeps the mark off red, which is the point of muting
+
 ## 1.0.1 - 2026-09-18
 
 - **Fixed: a multihomed machine drew two cards.** Discovery excludes anything it

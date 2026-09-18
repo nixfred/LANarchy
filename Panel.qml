@@ -3231,13 +3231,33 @@ Panel {
     return ""
   }
 
+  // The bar mark is a traffic light, and it is the only part of this plugin that
+  // does not take its colour from the theme.
+  //
+  // Everything else should match whatever palette is loaded, and does. But a
+  // theme is free to define a "green" that is not green: the palette in use
+  // while this was written has green #708c8b, yellow #7b8768 and red #b9968f,
+  // which are a grey-teal, a grey-olive and a dusty pink. Rendered at icon size
+  // they are the same colour, so the one thing the mark exists to tell you --
+  // is the lab up -- could not be read at a glance. Saturating the theme's own
+  // hue does not rescue it either, because #708c8b saturates to cyan, not green.
+  //
+  // So these three are fixed, chosen for contrast on both light and dark bars.
+  readonly property color statusGreen: "#3fb950"
+  readonly property color statusAmber: "#d29922"
+  readonly property color statusRed: "#f85149"
+
   readonly property color barHealthColor: {
-    if (root.glanceDownCount > 0) return (root.themeRed && String(root.themeRed) !== "") ? root.themeRed : root.urgent
-    if (root.glanceDegradedCount > 0) return root.themeYellow
-    if (!root.asOf || root.snapshotStale()) return root.inkDim
-    // Unknown is not healthy. A lab we cannot see is not a lab that is fine.
-    if (root.labHealth.unknown > 0 && root.labHealth.up === 0) return root.inkDim
-    return root.themeGreen
+    // Red: something is down and not muted. Muting a host is a statement that
+    // you do not want to hear about it, so it must not hold the mark red.
+    if (root.glanceDownCount > 0) return root.statusRed
+    // Amber: degraded, or we cannot currently see the lab. A stale snapshot is
+    // not good news, and an all-unknown lab is not a healthy one.
+    if (root.glanceDegradedCount > 0) return root.statusAmber
+    if (!root.asOf || root.snapshotStale()) return root.statusAmber
+    if (root.labHealth.unknown > 0 && root.labHealth.up === 0) return root.statusAmber
+    // Green: every host the panel is watching answered.
+    return root.statusGreen
   }
 
   // Scriptable surface. `omarchy-shell nixfred.lanarchy <fn>` drives the
@@ -3386,7 +3406,7 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
         iconSize: Style.space(14)
         color: root.barHealthColor
-        alert: root.urgent
+        alert: root.statusRed
         alarmed: root.glanceDownCount > 0
         active: root.opened || root.glanceDownCount > 0 || root.glanceDegradedCount > 0
       }

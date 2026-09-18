@@ -69,4 +69,10 @@ Never commit `unifi-secrets.json`, inventory dumps with keys, or snapshots from 
 
 - Prefer the Omarchy plugin develop guide shape for user-facing docs: Install · Usage · Configure · Remove · Dependencies · IPC
 - Screenshots in docs must be panel-only (no desktop chrome)
-- QML theming: use `Color` / `Style` / theme `colors.toml` — not hard-coded status greens
+- QML theming: use `Color` / `Style` / theme `colors.toml` — not hard-coded status greens.
+  **One exception, deliberately:** the bar mark's green / amber / red
+  (`statusGreen` / `statusAmber` / `statusRed` in `Panel.qml`). A theme may define
+  a "green" that is not green — one shipped palette has green `#708c8b`, yellow
+  `#7b8768` and red `#b9968f`, which at icon size are the same colour — and the
+  one thing the mark exists to answer is whether the lab is up. Everything else
+  in the panel still follows the theme.
