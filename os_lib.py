@@ -20,13 +20,20 @@ TTL_BANDS = (
     (64, 0, "unix"),           #   1..64 : Linux / macOS / BSD
 )
 
-# mDNS service types only Apple platforms advertise.
-APPLE_SERVICES = frozenset({
+# Services that mean "an Apple computer", not merely "an Apple device".
+# _airplay and _raop are published by iPhones, HomePods and Apple TVs, so
+# treating them as macOS labelled phones as Macs with full confidence, which is
+# worse than the vaguer TTL guess they replaced.
+APPLE_COMPUTER_SERVICES = frozenset({
     "_companion-link._tcp",
     "_rdlink._tcp",
+    "_sleep-proxy._udp",
+    "_smbserver._tcp",
+})
+# Apple, but not a computer: useful for saying "Apple device" and nothing more.
+APPLE_DEVICE_SERVICES = frozenset({
     "_airplay._tcp",
     "_raop._tcp",
-    "_sleep-proxy._udp",
     "_apple-mobdev2._tcp",
     "_touch-able._tcp",
 })
@@ -39,6 +46,7 @@ FAMILY_LABELS = {
     "windows": "WINDOWS",
     "bsd": "BSD",
     "unix": "UNIX",
+    "apple": "APPLE",
     "appliance": "APPLIANCE",
     "router": "ROUTER",
     "unknown": "MACHINE",
@@ -80,10 +88,14 @@ def family_from_services(services: object) -> str | None:
     if not isinstance(services, (list, tuple, set, frozenset)):
         return None
     names = {str(s).strip().lower() for s in services}
-    if names & APPLE_SERVICES:
+    if names & APPLE_COMPUTER_SERVICES:
         return "macos"
     if names & LINUX_SERVICES:
         return "linux"
+    if names & APPLE_DEVICE_SERVICES:
+        # An Apple something. Claiming macOS here is how iPhones and HomePods
+        # ended up badged as Macs.
+        return "apple"
     return None
 
 

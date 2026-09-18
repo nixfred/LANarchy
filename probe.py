@@ -18,6 +18,7 @@ from discover_lib import collect_discover, known_targets, merge_discover
 from history_lib import (
     flap_counts,
     recent_events,
+    sparkline_batch,
     append_probe_sample,
     last_counters,
     load_history,
@@ -443,8 +444,14 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         if unifi.get("name"):
             gateway["label"] = str(unifi["name"])
             gateway["model"] = str(unifi.get("model") or "")
-        # The internet is reachable or it is not; that is one honest check.
+        # ICMP alone is not reachability: plenty of networks filter it while
+        # everything else works, and reporting that as an outage is a false
+        # alarm. A TCP handshake on 443 is the fallback answer.
         wan_status, wan_rtt, _ = ping_host(WAN_PROBE_HOST)
+        if wan_status != "up":
+            tcp_ms = tcp_timing(WAN_PROBE_HOST, 443)
+            if tcp_ms is not None:
+                wan_status, wan_rtt = "up", tcp_ms
         wan = {
             "id": "__wan__",
             "label": "Internet",
@@ -460,15 +467,22 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
                 if not addr.startswith(("10.", "192.168.", "172.")):
                     wan["public_ip"] = addr
                 break
-        totals = {"rx_bps": 0.0, "tx_bps": 0.0, "measured": False}
+        # NOT "WAN rates". This is the sum of the interface counters on the
+        # hosts we can see, which is a different quantity: it counts traffic
+        # that never leaves the LAN and misses everything from hosts without
+        # telemetry. Nothing here can measure the gateway's WAN interface, so
+        # the number is reported as what it actually is and the Internet edge
+        # carries no flow at all rather than an invented one.
+        monitored = {"rx_bps": 0.0, "tx_bps": 0.0, "measured": False, "hosts": 0}
         for row in machines:
             rates = row.get("rates")
             if not isinstance(rates, dict):
                 continue
-            totals["rx_bps"] += float(rates.get("rx_bps") or 0)
-            totals["tx_bps"] += float(rates.get("tx_bps") or 0)
-            totals["measured"] = True
-        wan["rates"] = totals
+            monitored["rx_bps"] += float(rates.get("rx_bps") or 0)
+            monitored["tx_bps"] += float(rates.get("tx_bps") or 0)
+            monitored["hosts"] += 1
+            monitored["measured"] = True
+        wan["monitored_hosts"] = monitored
 
     # The network populates the view; the inventory only records your overrides.
     # A discovered box you have not curated still shows up, and a device you
@@ -575,6 +589,11 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         "ignored_count": len(dismissed),
         "gateway": gateway,
         "wan": wan,
+        "sparks": sparkline_batch(
+            hist,
+            [str(r.get("id") or "") for r in machines + host_rows + proxies]
+            + [str(g.get("id") or "") for g in dash.get("services") or []],
+        ),
         "new_devices": arrivals_now,
         "events": recent_events(hist, 6),
         "flaps": flap_counts(hist, 1.0),

@@ -174,10 +174,23 @@ panel takes effect at once instead of waiting out a long backoff:
 
 | Condition | Result |
 |-----------|--------|
-| Panel open (fresh `.panel-heartbeat`, touched every 8s while open) | Probe at `probeIntervalSec` |
-| `settings.homeGatewayMac` set and current gateway MAC differs | **No probing**, re-check every 60s |
-| On battery, panel closed | Probe at `batteryIntervalSec` (300s) |
-| Mains, panel closed | `closedIntervalSec` if set, else `probeIntervalSec` |
+| Condition | Probe | Discover |
+|-----------|-------|----------|
+| Panel open, on the home network | `probeIntervalSec` | yes |
+| Away from the home gateway | yes, panel open only | **never** |
+| Home gateway unknown or unreadable | yes | **never** (fails closed) |
+| On battery, panel closed | `batteryIntervalSec` (300s) | no |
+| Mains, panel closed | `closedIntervalSec` if set, else `probeIntervalSec` | no |
+
+**Probe and discover are separate decisions.** Probing touches only the addresses
+already in the inventory. Discovery sweeps the attached subnet: mDNS, ARP, a TCP
+connect to 22 and 3389 on every neighbour, and an SSH attempt on whatever
+answers. That is the feature at home and is port-scanning strangers anywhere
+else, so it **fails closed**: no known home network means no sweep.
+
+`homeGatewayMac` is adopted on first run (trust on first use), because a gate
+that requires the user to look up a MAC before discovery works is a gate nobody
+switches on. Every later network is measured against it.
 
 Gateway MAC is cached 30s and battery state 10s so the 2s tick stays cheap.
 Unknown gateway (no default route yet) never pauses probing.

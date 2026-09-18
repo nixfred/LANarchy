@@ -35,10 +35,25 @@ def test_uname_families() -> None:
 def test_mdns_apple_and_linux_tells() -> None:
     assert family_from_services(["_companion-link._tcp"]) == "macos"
     assert family_from_services(["_workstation._tcp"]) == "linux"
-    # Apple wins when both appear: its service set is the distinctive one
-    assert family_from_services(["_workstation._tcp", "_airplay._tcp"]) == "macos"
     assert family_from_services(["_http._tcp"]) is None
     assert family_from_services(None) is None
+
+
+def test_airplay_is_an_apple_device_not_a_mac() -> None:
+    """iPhones, HomePods and Apple TVs all publish _airplay and _raop.
+
+    Calling those macOS badged a phone as a Mac with "likely" confidence, which
+    is worse than the vaguer TTL guess it replaced: a confident wrong answer.
+    """
+    assert family_from_services(["_airplay._tcp"]) == "apple"
+    assert family_from_services(["_raop._tcp"]) == "apple"
+    assert family_from_services(["_apple-mobdev2._tcp"]) == "apple"
+    assert identify(ttl=64, services=["_airplay._tcp"])["label"] == "APPLE"
+
+    # a real Mac says so through services only a computer publishes
+    assert family_from_services(["_companion-link._tcp", "_airplay._tcp"]) == "macos"
+    # and uname still beats every guess
+    assert identify(uname="Darwin", services=["_airplay._tcp"])["family"] == "macos"
 
 
 def test_unifi_os_name() -> None:

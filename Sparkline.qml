@@ -1,10 +1,9 @@
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import qs.Ui
 
 // Compact Pulse NetHistoryGraph: canvas, niceMax ceiling, hover crosshair + tip.
-// Series come from history_cli.py sparkline --id. rx_bps is drawn only when present.
+// Series arrive from snapshot.sparks, built once per probe. rx_bps is drawn only when present.
 Item {
   id: spark
   property string nodeId: ""
@@ -86,37 +85,31 @@ Item {
     graph.requestPaint()
   }
 
-  function reload() {
-    if (!spark.live || spark.pluginDir === "" || proc.running) return
-    proc.command = ["python3", spark.pluginDir + "/history_cli.py", "sparkline", "--id", spark.nodeId, "--n", "32"]
-    proc.running = true
+  // Series arrive from the snapshot, which the collector already builds in one
+  // pass over the history it is holding anyway. This component used to launch a
+  // Python process every four seconds, per row, and re-parse the whole history
+  // file each time: roughly ten processes a second on a forty-row lab, to draw
+  // some lines. It now renders what it is given and spawns nothing.
+  property var series: null
+
+  function applySeries() {
+    var s = spark.series
+    if (!s) {
+      spark.rttValues = []
+      spark.rxValues = []
+    } else {
+      spark.rttValues = s.values instanceof Array ? s.values : []
+      spark.rxValues = s.rx_bps instanceof Array ? s.rx_bps : []
+    }
+    spark.hoverIndex = -1
+    graph.requestPaint()
   }
 
-  onNodeIdChanged: {
-    spark.rttValues = []
-    spark.rxValues = []
-    if (spark.live) spark.reload()
-  }
-  onLiveChanged: if (spark.live) spark.reload()
+  onSeriesChanged: spark.applySeries()
+  onNodeIdChanged: spark.applySeries()
   onWidthChanged: graph.requestPaint()
   onHeightChanged: graph.requestPaint()
-  Component.onCompleted: if (spark.live) spark.reload()
-
-  Process {
-    id: proc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: spark.applyPayload(text)
-    }
-    stderr: StdioCollector { waitForEnd: true }
-  }
-
-  Timer {
-    interval: 4000
-    running: spark.live
-    repeat: true
-    onTriggered: spark.reload()
-  }
+  Component.onCompleted: spark.applySeries()
 
   Canvas {
     id: graph

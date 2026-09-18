@@ -184,6 +184,26 @@ def flap_counts(history: dict, within_hours: float = 1.0) -> dict[str, int]:
     return counts
 
 
+def sparkline_batch(history: dict, node_ids: list[str], n: int = 32) -> dict:
+    """Every series the panel needs, in one read of the history we already hold.
+
+    Each Sparkline used to launch `history_cli.py` every four seconds and parse
+    the whole history file again, so a lab of forty rows meant roughly ten
+    Python processes a second to draw some lines.
+    """
+    out: dict[str, dict] = {}
+    for node_id in node_ids or []:
+        nid = str(node_id or "")
+        if not nid or nid in out:
+            continue
+        payload = sparkline_payload(history, nid, n)
+        if any(v is not None for v in payload["values"]) or any(
+            v is not None for v in payload["rx_bps"]
+        ):
+            out[nid] = {"values": payload["values"], "rx_bps": payload["rx_bps"]}
+    return out
+
+
 def save_history(history: dict, path: Path | None = None) -> Path:
     return atomic_write_json(path or history_path(), history, indent=None)
 

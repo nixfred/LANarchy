@@ -290,8 +290,29 @@ def dns_time_ms(name: str) -> float | None:
     return (time.perf_counter() - t) * 1000
 
 
-def neighbors() -> list[dict]:
-    return parse_neigh(_run(["ip", "-j", "-4", "neigh"], 2))
+# Interfaces that are not the network the user means. A container bridge and a
+# libvirt bridge each have their own subnet full of neighbours, and treating
+# them as "the lab" fills the map with things that are not on the LAN at all.
+VIRTUAL_IFACE_PREFIXES = ("docker", "br-", "virbr", "veth", "lxc", "lxd", "podman",
+                          "cni", "flannel", "tailscale", "zt", "wg", "tun", "tap")
+
+
+def is_virtual_iface(name: object) -> bool:
+    n = str(name or "").strip().lower()
+    return bool(n) and n.startswith(VIRTUAL_IFACE_PREFIXES)
+
+
+def neighbors(include_virtual: bool = False) -> list[dict]:
+    """ARP neighbours on real interfaces.
+
+    Container and hypervisor bridges are excluded: their neighbours are not on
+    the network being mapped, and promoting them produced map cards for docker
+    and libvirt addresses.
+    """
+    rows = parse_neigh(_run(["ip", "-j", "-4", "neigh"], 2))
+    if include_virtual:
+        return rows
+    return [r for r in rows if not is_virtual_iface(r.get("iface"))]
 
 
 def parse_neigh(text: str) -> list[dict]:
@@ -306,7 +327,12 @@ def parse_neigh(text: str) -> list[dict]:
             state = r.get("state") or []
             if "FAILED" in state or "INCOMPLETE" in state:
                 continue
-            rows.append({"ip": str(r.get("dst")), "mac": str(r["lladdr"]).lower(), "state": state[0] if state else ""})
+            rows.append({
+                "ip": str(r.get("dst")),
+                "mac": str(r["lladdr"]).lower(),
+                "state": state[0] if state else "",
+                "iface": str(r.get("dev") or ""),
+            })
     except (ValueError, TypeError):
         pass
     return rows

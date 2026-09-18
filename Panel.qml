@@ -83,6 +83,7 @@ Panel {
   property var events: []
   property var devices: []
   property var newDevices: []
+  property var sparks: ({})
   property var gateway: null
   property var wan: null
   property bool devicesOpen: false
@@ -571,7 +572,11 @@ Panel {
       if (!aBox || !bBox) continue
       var rowA = root.glanceRowById(e.from)
       var rowB = root.glanceRowById(e.to)
-      var flow = root.edgeFlow(rowA, rowB)
+      // The gateway-to-internet link has no counters behind it. Drawing packets
+      // there would be inventing throughput, so the edge stays still.
+      var flow = String(e.to || "") === "__wan__" || String(e.from || "") === "__wan__"
+          ? ({ rx: 0, tx: 0, bps: 0, measured: false })
+          : root.edgeFlow(rowA, rowB)
       var kind = String(e.kind || "")
       var pts = null
       if (kind === "lan" && root.machineById(String(e.from || "")))
@@ -934,13 +939,37 @@ Panel {
     }
   }
 
+  // Writes are serialised. One Process was reused with no queue, and changing a
+  // running Process's command applies to its NEXT run, so a second click while
+  // a write was in flight updated the UI and never reached disk.
+  property var pendingWrite: null
+
   function runInventoryWrite(payloadObj) {
+    // A write already in flight: remember the latest intent and send it when the
+    // current one finishes. Only the newest matters, since each payload is the
+    // whole inventory rather than a delta.
+    if (invWriteProc.running) {
+      root.pendingWrite = payloadObj
+      return true
+    }
+    root.sendInventoryWrite(payloadObj)
+    return true
+  }
+
+  function sendInventoryWrite(payloadObj) {
     var text = JSON.stringify(payloadObj)
     invWriteProc.command = [
       "bash", "-c",
       "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + text.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
     ]
     invWriteProc.running = true
+  }
+
+  function drainPendingWrite() {
+    if (!root.pendingWrite) return false
+    var next = root.pendingWrite
+    root.pendingWrite = null
+    root.sendInventoryWrite(next)
     return true
   }
 
@@ -1055,18 +1084,32 @@ Panel {
   }
 
   function gatewaySubline() {
-    if (!root.gateway) return "gateway"
-    var model = String(root.gateway.model || "")
-    return model ? ("gateway · " + model) : "gateway"
+    // Just the role. The model went here too and overflowed a narrow card; it
+    // belongs on the metric line where there is room for it.
+    return "gateway"
   }
 
   function gatewayMetric() {
     if (!root.gateway) return ""
     var parts = []
+    if (root.gateway.model) parts.push(String(root.gateway.model))
     if (root.gateway.ip) parts.push(String(root.gateway.ip))
     var t = root.rttText(root.gateway)
     if (t !== "—") parts.push(t)
     return parts.join(" · ")
+  }
+
+  // What the monitored hosts are pushing. Deliberately NOT called WAN: it counts
+  // traffic that never leaves the LAN and misses every host without telemetry.
+  // Nothing here can read the gateway's WAN interface.
+  function monitoredHostsText() {
+    var m = root.wan && root.wan.monitored_hosts ? root.wan.monitored_hosts : null
+    if (!m || !m.measured) return ""
+    var d = root.fmtRate(m.rx_bps)
+    var u = root.fmtRate(m.tx_bps)
+    if (!d && !u) return ""
+    return "↓" + (d || "0") + " ↑" + (u || "0") + " · " + m.hosts + " host"
+        + (m.hosts === 1 ? "" : "s")
   }
 
   function wanMetric() {
@@ -1074,12 +1117,7 @@ Panel {
     var parts = []
     var t = root.rttText(root.wan)
     if (t !== "—") parts.push(t)
-    var r = root.wan.rates
-    if (r && r.measured) {
-      var d = root.fmtRate(r.rx_bps)
-      var u = root.fmtRate(r.tx_bps)
-      if (d || u) parts.push("↓" + (d || "0") + " ↑" + (u || "0"))
-    }
+    if (root.wan.public_ip) parts.push(String(root.wan.public_ip))
     return parts.join(" · ")
   }
 
@@ -1320,6 +1358,7 @@ Panel {
     root.discover = data.discover instanceof Array ? data.discover : []
     root.devices = data.devices instanceof Array ? data.devices : []
     root.newDevices = data.new_devices instanceof Array ? data.new_devices : []
+    root.sparks = data.sparks && typeof data.sparks === "object" ? data.sparks : ({})
     root.gateway = data.gateway && typeof data.gateway === "object" ? data.gateway : null
     root.wan = data.wan && typeof data.wan === "object" ? data.wan : null
     root.ignoredCount = Number(data.ignored_count) || 0
@@ -1506,7 +1545,9 @@ Panel {
     if (!root.asOf) return -1
     var t = Date.parse(String(root.asOf))
     if (!isFinite(t)) return -1
-    return Math.max(0, (Date.now() - t) / 1000)
+    // root.nowMs, not Date.now(): a binding needs something that changes, or a
+    // stopped collector keeps reading as fresh forever.
+    return Math.max(0, (root.nowMs - t) / 1000)
   }
 
   function snapshotStale() {
@@ -1521,18 +1562,16 @@ Panel {
     if (root.error) return "ERROR"
     if (!root.asOf) return "NO DATA"
     if (root.snapshotStale()) return "STALE"
-    var total = root.machines.length + root.groups.length + root.lanBucketRows().length + root.quietProxies.length
-    if (total === 0) return "NO DATA"
-    var down = 0
-    var bands = [root.machines, root.groups, root.lanBucketRows(), root.quietProxies]
-    var b, i
-    for (b = 0; b < bands.length; b++) {
-      for (i = 0; i < bands[b].length; i++) {
-        if (String(bands[b][i].status) === "down") down++
-      }
-    }
-    if (down > 0) return "LIVE · " + down + " DOWN"
-    return "LIVE · ALL CLEAR"
+    var h = root.labHealth
+    if (h.total === 0) return "NO DATA"
+    // Say what is actually true. "ALL CLEAR" used to appear whenever nothing was
+    // explicitly down, so degraded and unknown nodes were silently clear.
+    var parts = []
+    if (h.down > 0) parts.push(h.down + " DOWN")
+    if (h.degraded > 0) parts.push(h.degraded + " DEGRADED")
+    if (h.unknown > 0) parts.push(h.unknown + " UNKNOWN")
+    if (parts.length === 0) return "LIVE · ALL CLEAR"
+    return "LIVE · " + parts.join(" · ")
   }
 
   readonly property color glanceStatusTint: {
@@ -2239,9 +2278,14 @@ Panel {
     onExited: function(exitCode) {
       if (exitCode !== 0) {
         if (!root.inventoryError) root.inventoryError = "Save failed"
+        // A queued write on top of a failure would bury the error.
+        root.pendingWrite = null
         root.loadInventory()
         return
       }
+      // Send whatever was clicked while this write was in flight, before
+      // reloading, or the reload would overwrite the newer intent.
+      if (root.drainPendingWrite()) return
       if (root.view === "form") root.view = "setup"
       root.formConfirmDelete = false
       root.formFieldFocused = false
@@ -2313,6 +2357,7 @@ Panel {
         // `nodeId: nodeId` would bind the Sparkline's own property to itself:
         // QML resolves an unqualified name against the innermost object first.
         nodeId: meshRow.nodeId
+        series: root.sparks[meshRow.nodeId] || null
         pluginDir: root.pluginDir
         live: root.opened && root.view === "glance" && root.glanceTab === "list"
             && meshRow.nodeId !== ""
@@ -2707,6 +2752,7 @@ Panel {
         width: parent.width
         height: Style.space(16)
         nodeId: mapBox.sparklineId
+        series: root.sparks[mapBox.sparklineId] || null
         pluginDir: root.pluginDir
         live: root.opened && root.view === "glance" && root.glanceTab === "map" && mapBox.sparklineId !== ""
         stroke: root.ink
@@ -2782,96 +2828,58 @@ Panel {
     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: tapped() }
   }
 
-  readonly property int glanceDownCount: {
-    var n = 0
-    var i
-    for (i = 0; i < root.machines.length; i++)
-      if (String(root.machines[i].status) === "down") n++
-    for (i = 0; i < root.groups.length; i++)
-      if (String(root.groups[i].status) === "down") n++
-    return n
+  // A ticking clock, so anything derived from "how old is this" actually
+  // re-evaluates. Elapsed time alone cannot invalidate a binding.
+  property double nowMs: Date.now()
+  Timer {
+    interval: 5000
+    running: true
+    repeat: true
+    onTriggered: root.nowMs = Date.now()
   }
 
-  readonly property int glanceDegradedCount: {
-    var n = 0
-    var i
-    for (i = 0; i < root.machines.length; i++)
-      if (root.displayStatus(root.machines[i]) === "degraded") n++
-    for (i = 0; i < root.groups.length; i++)
-      if (String(root.groups[i].status) === "degraded") n++
-    return n
-  }
+  // ONE health model. Every surface reads this: the bar colour, the status
+  // pill, the IPC. Previously each counted its own way, over overlapping
+  // arrays, so the bar could show a green tick while the Internet card was red.
+  readonly property var labHealth: {
+    var seen = ({})
+    var counts = { up: 0, degraded: 0, down: 0, unknown: 0, total: 0 }
 
-  // What the bar icon shows next to the castle. Persisted in inventory settings
-  // (same store as mapAnimate) and chosen by right-clicking the bar icon.
-  readonly property var barDisplayModes: [
-    { key: "downs", label: "Down count", hint: "3↓ when something is down, a tick when all is well" },
-    { key: "upfrac", label: "Up / total", hint: "12/14" },
-    { key: "worstrtt", label: "Worst latency", hint: "the slowest node's RTT" },
-    { key: "wan", label: "WAN rates", hint: "↓ down ↑ up through the router" },
-    { key: "none", label: "Icon only", hint: "no text, just the castle" }
-  ]
-
-  readonly property string barDisplay: {
-    var v = String((root.invSettings && root.invSettings.barDisplay) || "downs")
-    for (var i = 0; i < root.barDisplayModes.length; i++)
-      if (root.barDisplayModes[i].key === v) return v
-    return "downs"
-  }
-
-  function setBarDisplay(key) {
-    var settings = ({})
-    var k
-    for (k in root.invSettings) settings[k] = root.invSettings[k]
-    settings.barDisplay = String(key || "downs")
-    root.invSettings = settings
-    root.view = "glance"
-    if (!root.inventoryReady || root.inventoryLoading) return
-    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return
-    root.runInventoryWrite(root.inventoryWritePayload(root.nodes, settings))
-  }
-
-  readonly property int glanceTotalCount: root.machines.length + root.groups.length
-
-  readonly property real glanceWorstRtt: {
-    var worst = -1
-    for (var i = 0; i < root.machines.length; i++) {
-      var v = Number(root.machines[i].rtt_ms)
-      if (isFinite(v) && v > worst) worst = v
+    function take(row) {
+      if (!row) return
+      var id = String(row.id || "")
+      // The LAN bucket holds demoted copies of rows that are already counted in
+      // their own band, so a single failure used to be counted twice.
+      if (!id || seen[id]) return
+      seen[id] = true
+      var st = String(row.status || "unknown")
+      if (st === "up") counts.up++
+      else if (st === "degraded") counts.degraded++
+      else if (st === "down") counts.down++
+      else counts.unknown++
+      counts.total++
     }
-    return worst
+
+    var bands = [root.machines, root.groups, root.lanBucketRows(), root.quietProxies]
+    for (var b = 0; b < bands.length; b++)
+      for (var i = 0; i < bands[b].length; i++) take(bands[b][i])
+
+    // The gateway and the internet are part of the lab's health. Leaving them
+    // out is how a red Internet card coexisted with "ALL CLEAR".
+    take(root.gateway)
+    take(root.wan)
+    return counts
   }
 
-  readonly property string barText: {
-    if (!root.asOf) return "…"
-    var mode = root.barDisplay
-    if (mode === "none") return ""
-    if (mode === "downs")
-      return root.glanceDownCount > 0 ? (root.glanceDownCount + "↓")
-          : (root.glanceDegradedCount > 0 ? (root.glanceDegradedCount + "!") : "✓")
-    if (mode === "upfrac") {
-      var total = root.glanceTotalCount
-      if (total <= 0) return ""
-      return (total - root.glanceDownCount) + "/" + total
-    }
-    if (mode === "worstrtt") {
-      var r = root.glanceWorstRtt
-      if (!(r >= 0)) return "—"
-      return (r >= 100 ? Math.round(r) : Math.round(r * 10) / 10) + "ms"
-    }
-    if (mode === "wan") {
-      var t = root.lanTrafficTotals()
-      var d = root.fmtRate(t.rx_bps)
-      var u = root.fmtRate(t.tx_bps)
-      return (d || u) ? ("↓" + (d || "0") + " ↑" + (u || "0")) : "idle"
-    }
-    return ""
-  }
+  readonly property int glanceDownCount: root.labHealth.down
+  readonly property int glanceDegradedCount: root.labHealth.degraded
 
   readonly property color barHealthColor: {
     if (root.glanceDownCount > 0) return (root.themeRed && String(root.themeRed) !== "") ? root.themeRed : root.urgent
     if (root.glanceDegradedCount > 0) return root.themeYellow
     if (!root.asOf || root.snapshotStale()) return root.inkDim
+    // Unknown is not healthy. A lab we cannot see is not a lab that is fine.
+    if (root.labHealth.unknown > 0 && root.labHealth.up === 0) return root.inkDim
     return root.themeGreen
   }
 
@@ -2921,8 +2929,14 @@ Panel {
 
     function status(): string {
       if (!root.asOf) return "probing"
-      return (root.glanceDownCount > 0 ? root.glanceDownCount + " down" : "all up")
-          + " · " + root.glanceTotalCount + " tracked · " + root.asOf
+      var h = root.labHealth
+      var parts = []
+      if (h.down) parts.push(h.down + " down")
+      if (h.degraded) parts.push(h.degraded + " degraded")
+      if (h.unknown) parts.push(h.unknown + " unknown")
+      if (!parts.length) parts.push("all up")
+      if (root.snapshotStale()) parts.push("STALE")
+      return parts.join(" · ") + " · " + h.total + " tracked · " + root.asOf
     }
   }
 
@@ -3350,79 +3364,12 @@ Panel {
               width: root.mapBarWidth
               height: parent.height - Style.space(12)
               radius: Style.space(10)
-              color: Qt.alpha(Color.accent, 0.08)
+              // A zone divider, not a link. It used to carry a lit, animated
+              // full-height spine across empty space, which read as traffic on
+              // a wire that does not exist.
+              color: Qt.alpha(Color.accent, 0.05)
               border.width: 1
-              border.color: Qt.alpha(Color.accent, 0.45)
-
-              // Router column: a static spine whose width is the aggregate rate,
-              // with packets walking it. Static so it is not re-rasterised per frame.
-              Item {
-                id: routerFlow
-                anchors.fill: parent
-                anchors.margins: Style.space(4)
-
-                readonly property var totals: root.lanTrafficTotals()
-                readonly property real bps: Math.max(routerFlow.totals.rx_bps || 0,
-                                                     routerFlow.totals.tx_bps || 0)
-                readonly property real y0: 10
-                readonly property real y1: Math.max(routerFlow.y0 + 1, height - 10)
-                readonly property real span: routerFlow.y1 - routerFlow.y0
-
-                Rectangle {
-                  x: (parent.width - width) / 2
-                  y: routerFlow.y0
-                  width: Math.max(2, root.edgeFlowWidth(routerFlow.bps))
-                  height: routerFlow.span
-                  radius: width / 2
-                  color: Qt.alpha(Color.accent, 0.22)
-                  antialiasing: true
-                }
-
-                // Aggregate LAN throughput, down the column for rx and up for tx.
-                Repeater {
-                  model: root.mapAnimate && routerFlow.totals.measured ? 2 : 0
-                  delegate: Item {
-                    id: routerDir
-                    required property int index
-                    anchors.fill: parent
-                    readonly property bool inbound: routerDir.index === 0
-                    readonly property real bps: routerDir.inbound
-                        ? (routerFlow.totals.rx_bps || 0) : (routerFlow.totals.tx_bps || 0)
-                    readonly property int count: root.flowPacketCount(routerDir.bps)
-                    readonly property real speed: root.flowSpeedPxPerSec(routerDir.bps)
-
-                    Repeater {
-                      model: routerDir.count
-                      delegate: Rectangle {
-                        id: routerPacket
-                        required property int index
-                        readonly property real travelled: {
-                          if (!(routerFlow.span > 0) || routerDir.count <= 0) return 0
-                          var offset = routerFlow.span * (routerPacket.index / routerDir.count)
-                          var walked = (root.edgePhase * routerDir.speed + offset) % routerFlow.span
-                          return routerDir.inbound ? walked : (routerFlow.span - walked)
-                        }
-                        width: 5
-                        height: width
-                        radius: width / 2
-                        x: (parent.width - width) / 2
-                        y: routerFlow.y0 + routerPacket.travelled - height / 2
-                        color: routerDir.inbound ? Color.accent : Qt.lighter(Color.accent, 1.5)
-                        antialiasing: true
-                        Rectangle {
-                          anchors.centerIn: parent
-                          width: parent.width * 3
-                          height: width
-                          radius: width / 2
-                          color: Qt.alpha(parent.color, 0.18)
-                          z: -1
-                          antialiasing: true
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+              border.color: Qt.alpha(Color.accent, 0.22)
 
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -3433,20 +3380,6 @@ Panel {
                 font.pixelSize: Style.font.caption
                 font.letterSpacing: 1.4
                 font.bold: true
-              }
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: Style.space(6)
-                text: {
-                  var t = root.lanTrafficTotals()
-                  var d = root.fmtRate(t.rx_bps)
-                  var u = root.fmtRate(t.tx_bps)
-                  return (d || u) ? ("↓" + (d || "0") + "  ↑" + (u || "0")) : "idle"
-                }
-                color: root.ink
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
               }
             }
 
@@ -3676,6 +3609,13 @@ Panel {
                     font.pixelSize: Style.font.caption
                     font.bold: true
                     font.letterSpacing: 1.2
+                  }
+                  Text {
+                    visible: root.monitoredHostsText() !== ""
+                    text: "monitored hosts " + root.monitoredHostsText()
+                    color: root.muted
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
                   }
                   Text {
                     visible: root.flapping.length > 0

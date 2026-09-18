@@ -117,36 +117,46 @@ def decide(
     base = _clamp_interval(s.get("probeIntervalSec"), DEFAULT_INTERVAL_S, 5.0, 120.0)
 
     home = s.get("homeGatewayMac")
-    home_mac = str(home).strip().lower() if isinstance(home, str) and home.strip() else None
-    if home_mac and current_gateway_mac and current_gateway_mac != home_mac:
-        if is_panel_open:
-            # Show the user their own inventory, but never sweep a foreign LAN.
-            return {"probe": True, "discover": False, "sleep_s": base,
-                    "reason": "away-network panel-open"}
+    home_mac = str(home).strip().lower().replace("-", ":") if isinstance(home, str) and home.strip() else None
+    here = str(current_gateway_mac or "").strip().lower().replace("-", ":") or None
+
+    # Where are we? Discovery is decided by this alone, and it fails closed:
+    # "we do not know" must mean "do not sweep", because an unset home network
+    # used to disable the rule entirely and let the scan run anywhere.
+    if home_mac is None or here is None:
+        place, at_home = "unknown-network", False
+    elif home_mac != here:
+        place, at_home = "away-network", False
+    else:
+        place, at_home = "home", True
+
+    # Cadence is decided separately, so failing closed on discovery never costs
+    # the battery backoff.
+    # A network we have been told is not ours: do the least possible.
+    if place == "away-network" and not is_panel_open:
         return {"probe": False, "discover": False, "sleep_s": AWAY_POLL_S,
-                "reason": "away-network"}
+                "reason": place}
 
     if is_panel_open:
-        return {"probe": True, "discover": True, "sleep_s": base, "reason": "panel-open"}
+        reason = "panel-open" if at_home else place + " panel-open"
+        return {"probe": True, "discover": at_home, "sleep_s": base, "reason": reason}
 
+    # Everything below is panel-closed. Discovery is off regardless; only the
+    # cadence is being chosen, so an unknown network still gets the backoff.
     if battery and s.get("batteryBackoff") is not False:
         idle = _clamp_interval(
             s.get("batteryIntervalSec"), DEFAULT_BATTERY_INTERVAL_S, base, 3600.0
         )
-        # Nobody is looking: keep the inventory fresh, skip the subnet sweep.
         return {"probe": True, "discover": False, "sleep_s": idle,
                 "reason": "battery panel-closed"}
 
     closed = s.get("closedIntervalSec")
     if closed is not None:
-        return {
-            "probe": True,
-            "discover": False,
-            "sleep_s": _clamp_interval(closed, base, base, 3600.0),
-            "reason": "panel-closed",
-        }
+        return {"probe": True, "discover": False,
+                "sleep_s": _clamp_interval(closed, base, base, 3600.0),
+                "reason": "panel-closed"}
 
-    return {"probe": True, "discover": True, "sleep_s": base, "reason": "mains"}
+    return {"probe": True, "discover": False, "sleep_s": base, "reason": "mains"}
 
 
 GATEWAY_TTL_S = 30.0
@@ -171,6 +181,22 @@ def _cached(key: str, ttl_s: float, produce, now: float | None = None):
 
 def reset_cache() -> None:
     _cache.clear()
+
+
+def adopt_home_network(settings: dict | None, gateway: str | None) -> str | None:
+    """Trust on first use: the network you install on is your home network.
+
+    Failing closed is only reasonable if there is a way to be open somewhere.
+    Asking a user to find their gateway's MAC before discovery works is a
+    feature nobody would switch on, so the first gateway we successfully read
+    is adopted, once, and every other network is then measured against it.
+    """
+    s = settings if isinstance(settings, dict) else {}
+    existing = s.get("homeGatewayMac")
+    if isinstance(existing, str) and existing.strip():
+        return None
+    mac = str(gateway or "").strip().lower().replace("-", ":")
+    return mac if len(mac) == 17 else None
 
 
 def current_decision(settings: dict | None) -> dict:

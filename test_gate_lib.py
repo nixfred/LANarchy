@@ -20,34 +20,69 @@ def decide(settings=None, *, panel=False, battery=None, gw=None):
 
 
 def test_desktop_defaults_unchanged():
-    """No battery, no home gateway configured → old always-on 15s behaviour."""
-    d = decide({})
+    """No battery → 15s probing, as before. Discovery is a separate decision."""
+    d = decide({"homeGatewayMac": HOME}, gw=HOME)
     assert d["probe"] is True
     assert d["sleep_s"] == 15.0
     assert d["reason"] == "mains"
 
 
 def test_panel_open_always_full_pace():
-    d = decide({"probeIntervalSec": 20}, panel=True, battery=True)
+    d = decide({"probeIntervalSec": 20, "homeGatewayMac": HOME},
+               panel=True, battery=True, gw=HOME)
     assert d["probe"] is True and d["sleep_s"] == 20.0
 
 
 def test_battery_with_panel_closed_backs_off():
-    d = decide({}, panel=False, battery=True)
+    d = decide({"homeGatewayMac": HOME}, panel=False, battery=True, gw=HOME)
     assert d["probe"] is True
     assert d["sleep_s"] == gate_lib.DEFAULT_BATTERY_INTERVAL_S
     assert d["reason"] == "battery panel-closed"
 
 
 def test_battery_backoff_can_be_disabled():
-    d = decide({"batteryBackoff": False}, panel=False, battery=True)
+    d = decide({"homeGatewayMac": HOME, "batteryBackoff": False},
+               panel=False, battery=True, gw=HOME)
     assert d["sleep_s"] == 15.0 and d["reason"] == "mains"
 
 
+def test_failing_closed_does_not_cost_the_battery_backoff():
+    """Discovery and cadence are separate decisions.
+
+    Refusing to sweep an unrecognised network must not also drop the laptop back
+    to a 15s probe on battery with nobody looking.
+    """
+    d = decide({}, panel=False, battery=True, gw=None)
+    assert d["discover"] is False
+    assert d["sleep_s"] == gate_lib.DEFAULT_BATTERY_INTERVAL_S
+    assert d["reason"] == "battery panel-closed"
+
+
+def test_unknown_network_never_sweeps():
+    """An unset home network used to disable the rule entirely, so the scan ran
+    on whatever network the laptop had joined."""
+    assert decide({}, panel=True, gw="ff:ff:ff:ff:ff:ff")["discover"] is False
+    assert decide({"homeGatewayMac": HOME}, panel=True, gw=None)["discover"] is False
+    # and a recognised home network is the one place it is allowed
+    assert decide({"homeGatewayMac": HOME}, panel=True, gw=HOME)["discover"] is True
+
+
+def test_home_adoption_is_first_use_only():
+    from gate_lib import adopt_home_network
+
+    assert adopt_home_network({}, "AA:BB:CC:DD:EE:01") == "aa:bb:cc:dd:ee:01"
+    assert adopt_home_network({}, "aa-bb-cc-dd-ee-01") == "aa:bb:cc:dd:ee:01"
+    assert adopt_home_network({"homeGatewayMac": HOME}, "ff:ff:ff:ff:ff:ff") is None
+    assert adopt_home_network({}, None) is None
+    assert adopt_home_network({}, "nonsense") is None
+
+
 def test_battery_interval_is_configurable_and_clamped():
-    assert decide({"batteryIntervalSec": 90}, battery=True)["sleep_s"] == 90.0
+    assert decide({"batteryIntervalSec": 90, "homeGatewayMac": HOME},
+                  battery=True, gw=HOME)["sleep_s"] == 90.0
     # below the base interval is nonsense for a backoff → fall back to the default
-    assert decide({"batteryIntervalSec": 2}, battery=True)["sleep_s"] == 300.0
+    assert decide({"batteryIntervalSec": 2, "homeGatewayMac": HOME},
+                  battery=True, gw=HOME)["sleep_s"] == 300.0
 
 
 def test_away_network_pauses_probing():
@@ -66,22 +101,25 @@ def test_away_network_still_probes_when_user_opens_panel():
 def test_home_network_match_is_case_insensitive():
     d = decide({"homeGatewayMac": HOME.upper()}, gw=HOME)
     assert d["probe"] is True and d["reason"] == "mains"
+    # and hyphen-separated MACs are the same network
+    assert decide({"homeGatewayMac": HOME.replace(":", "-")}, gw=HOME)["discover"] is False
 
 
-def test_unknown_gateway_does_not_pause():
-    """Cannot read the gateway (no route yet) → never silently stop probing."""
+def test_unknown_gateway_does_not_pause_probing():
+    """Cannot read the gateway → still probe your own inventory, just never sweep."""
     d = decide({"homeGatewayMac": HOME}, gw=None)
-    assert d["probe"] is True
+    assert d["probe"] is True and d["discover"] is False
 
 
 def test_closed_interval_opt_in():
-    d = decide({"closedIntervalSec": 60}, panel=False, battery=False)
+    d = decide({"closedIntervalSec": 60, "homeGatewayMac": HOME},
+               panel=False, battery=False, gw=HOME)
     assert d["sleep_s"] == 60.0 and d["reason"] == "panel-closed"
 
 
 def test_bad_interval_values_fall_back():
-    assert decide({"probeIntervalSec": "banana"})["sleep_s"] == 15.0
-    assert decide({"probeIntervalSec": 99999})["sleep_s"] == 15.0
+    assert decide({"probeIntervalSec": "banana", "homeGatewayMac": HOME}, gw=HOME)["sleep_s"] == 15.0
+    assert decide({"probeIntervalSec": 99999, "homeGatewayMac": HOME}, gw=HOME)["sleep_s"] == 15.0
 
 
 def test_on_battery_reads_sysfs() -> None:
@@ -160,11 +198,10 @@ def test_discovery_is_refused_on_a_foreign_network() -> None:
 
 
 def test_discovery_only_runs_when_someone_is_looking() -> None:
-    assert decide({}, panel=True)["discover"] is True
-    assert decide({}, panel=False, battery=True)["discover"] is False
-    assert decide({"closedIntervalSec": 60}, panel=False)["discover"] is False
-    # a desktop with no battery keeps the old always-on behaviour
-    assert decide({})["discover"] is True
+    assert decide({"homeGatewayMac": HOME}, panel=True, gw=HOME)["discover"] is True
+    assert decide({"homeGatewayMac": HOME}, panel=False, battery=True, gw=HOME)["discover"] is False
+    assert decide({"homeGatewayMac": HOME, "closedIntervalSec": 60},
+                  panel=False, gw=HOME)["discover"] is False
 
 
 def test_home_network_permits_discovery() -> None:

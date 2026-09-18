@@ -92,7 +92,22 @@ def test_parse_avahi_unescapes_and_keeps_resolved_ipv4_only() -> None:
 
 
 def test_parse_neigh_drops_failed() -> None:
-    assert parse_neigh(NEIGH)[1] == {"ip": "192.168.1.55", "mac": "aa:bb:cc:dd:ee:55", "state": "STALE"}
+    row = parse_neigh(NEIGH)[1]
+    assert row["ip"] == "192.168.1.55"
+    assert row["mac"] == "aa:bb:cc:dd:ee:55"
+    assert row["state"] == "STALE"
+    assert "iface" in row, "the interface decides whether this is even our network"
+
+
+def test_virtual_bridges_are_not_the_lab() -> None:
+    """A docker or libvirt bridge has its own subnet full of neighbours. Treating
+    them as the LAN put container and hypervisor addresses on the map."""
+    from telemetry_lib import is_virtual_iface
+
+    for name in ("docker0", "br-1a2b3c", "virbr0", "veth1234", "tailscale0", "wg0"):
+        assert is_virtual_iface(name), name
+    for name in ("eth0", "wlo1", "enp3s0", "eno1", ""):
+        assert not is_virtual_iface(name), name
     assert len(parse_neigh(NEIGH)) == 3
 
 

@@ -3,6 +3,52 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.13.0 - 2026-09-17
+
+Honesty and cost pass. Everything known to be wrong, fixed.
+
+- **One health model.** Every surface counted separately, over overlapping
+  arrays, so a failure in the LAN bucket was counted twice and "ALL CLEAR"
+  appeared whenever nothing was explicitly *down* - degraded and unknown nodes
+  were silently clear, and the bar excluded the gateway and Internet entirely, so
+  a red Internet card could sit beside a green tick. There is now one
+  deduplicated model with explicit up / degraded / down / unknown, read by the
+  bar, the status pill and the IPC alike
+- Staleness depends on a **ticking clock**. It was computed from `Date.now()`
+  inside a binding, and elapsed time alone cannot invalidate a binding, so a
+  stopped collector could keep reading as fresh
+- **The Internet card no longer reports throughput it cannot measure.** That
+  figure was the sum of the LAN interface counters presented as internet traffic:
+  it counts traffic that never leaves the LAN and misses every host without
+  telemetry. It is now reported as **monitored hosts**, and the gateway-to-internet
+  edge carries no flow, because nothing here can read the gateway's WAN interface
+- **The router column is a divider, not a wire.** It carried a lit, animated
+  full-height spine through empty space, which read as traffic on a link that does
+  not exist
+- **The discovery gate fails closed.** An unset `homeGatewayMac`, or an unreadable
+  gateway, used to disable the rule entirely and let the subnet sweep run on any
+  network. Discovery is now refused unless we are on a network known to be home.
+  Home is adopted on first run, because a gate that needs you to look up a MAC
+  first is a gate nobody switches on
+- Container and hypervisor bridges are not the lab. `docker0`, `virbr*`, `veth*`
+  and friends are excluded, so container and libvirt addresses stop appearing as
+  machines
+- **Sparklines spawn nothing.** Each one launched a Python process every four
+  seconds and re-parsed the whole history file: roughly ten processes a second on
+  a forty-row lab. The collector now builds every series in one pass and the
+  component just draws
+- Inventory writes are **queued**. One Process was reused with no queue, and
+  changing a running Process's command applies to its next run, so a second click
+  during a write updated the screen and never reached disk
+- `_airplay` / `_raop` mean **Apple device**, not macOS. iPhones, HomePods and
+  Apple TVs publish them, so calling that macOS badged a phone as a Mac with
+  confidence - worse than the vaguer TTL guess it replaced
+- Internet reachability falls back to a **TCP handshake on 443** when ICMP is
+  filtered, instead of reporting an outage
+- The collector **exits when its own source changes**, so a plugin update stops
+  leaving a daemon running the previous version behind a flock
+- `docs/architecture.md` no longer claims that being away means no probing
+
 ## 0.12.0 - 2026-09-17
 
 - **New device alarm.** Lanarchy remembers every MAC it has ever seen. Hardware
