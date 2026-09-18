@@ -426,13 +426,21 @@ Panel {
   readonly property int mapCardH: Style.space(94)
   // What recalcMapLayout says the map needs; the popup follows it.
   property real mapContentHeight: Style.space(460)
-  // A clear horizontal lane below the machine grid. Machine uplinks run in
-  // it instead of cutting across the cards between them.
+  // One clear horizontal lane per row of machines, sitting in the gutter
+  // directly BELOW that row. A card's uplink drops into its own row's lane, so
+  // it never has to reach past the row beneath it.
+  //
+  // A single lane under the whole grid could not work once the band wrapped:
+  // every card in the top row had to cross the bottom row to reach it, and
+  // dodging through the 8px gaps between columns put the wire on the card
+  // borders, which is what "traffic running through the cards" looked like.
+  property var mapRowLanes: []
+  // The vertical trunk every row lane empties into, in a corridor reserved to
+  // the right of the grid and left of the gateway. Nothing is ever drawn there,
+  // so the trunk crosses nothing.
+  property real mapTrunkX: 0
+  // Bottom-most lane, which is what the panel height has to cover.
   property real mapGutterY: 0
-  // X positions of the gaps between machine columns. An uplink drops through
-  // one of these instead of straight down, which would cross the card sitting
-  // directly below it once the band wraps to a second row.
-  property var mapColumnGaps: []
   property real mapEgressY: 0
   // The gateway's placed geometry, so the internet arrow can hang off it.
   readonly property var gatewayBox: {
@@ -509,20 +517,11 @@ Panel {
     return Math.min(5.2, 4.2 + Math.log(v / 80000) / Math.log(25))
   }
 
-  // Dash march: busy links keep full pace; quiet/no-rate links crawl at 1/10.
-  function edgeFlowSpeed(bps) {
-    var v = Number(bps) || 0
-    if (v < 800) return 0.1
-    return 1.0
-  }
-
-  function edgeFlowPeriod(bps) {
-    return 1.0
-  }
-
-  function edgePulseSec(rowA, rowB) {
-    return root.edgeFlowPeriod(root.edgeFlowBps(rowA, rowB))
-  }
+  // No dash march, no pulse, no idle shimmer. There was a set of helpers here
+  // that made an unmeasured link crawl at a tenth pace, which is motion with no
+  // measurement behind it. Nothing called them any more and the comment still
+  // promised the behaviour, so both are gone: the only thing that moves on this
+  // map is a packet standing for bytes someone counted.
 
   function setMapAnimate(on) {
     root.mapAnimate = !!on
@@ -628,64 +627,51 @@ Panel {
     return out
   }
 
+  // The lane for the row a card sits in: the first lane below its bottom edge.
+  function mapLaneBelow(box) {
+    var bottom = box.y + box.h
+    var best = -1
+    for (var i = 0; i < root.mapRowLanes.length; i++) {
+      var ly = Number(root.mapRowLanes[i])
+      if (ly > bottom + 1 && (best < 0 || ly < best)) best = ly
+    }
+    return best
+  }
+
   // Orthogonal route between two cards as a point list. Canvas strokes it and the
   // travelling packets walk it, so both read the same geometry from one place.
-  // A machine's uplink leaves the bottom of its card, drops into the clear lane
-  // under the whole machine grid, and only then runs sideways to the gateway.
-  // The generic orthogonal router picks a mid-gap corridor, which was fine when
-  // machines were a single row; once the band wraps, that corridor lands on top
-  // of the row below.
+  //
+  // Four segments, and every one of them runs in space nothing is drawn in:
+  //
+  //   1. straight down out of the card into its OWN row's gutter lane
+  //   2. right along that lane, between two rows of cards
+  //   3. down the trunk, in the reserved corridor right of the grid
+  //   4. right into the gateway's left face, at the gateway's midline
+  //
+  // The previous route ran every card down to one lane beneath the whole grid,
+  // so a top-row card had to get past the bottom row, and the only way through
+  // was the 8px gap between two columns. That is what put wires on the cards.
   function machineUplinkPoints(aBox, bBox) {
-    var laneY = root.mapGutterY
     var aBottom = aBox.y + aBox.h
+    var laneY = root.mapLaneBelow(aBox)
     if (!(laneY > aBottom + 2)) return null
 
     var aCx = aBox.x + aBox.w / 2
-    // Drop through the nearest gap between columns, not through the card below.
-    var dropX = aCx
-    var best = -1
-    for (var gi = 0; gi < root.mapColumnGaps.length; gi++) {
-      var d = Math.abs(root.mapColumnGaps[gi] - aCx)
-      if (best < 0 || d < best) {
-        best = d
-        dropX = root.mapColumnGaps[gi]
-      }
-    }
-    // Enter the gateway on the face that points back at the lane, and enter it
-    // at its own centre so the bend is in the line, not in the card.
-    var bMidY = bBox.y + bBox.h / 2
-    var enterX = bBox.x + bBox.w / 2
-    var enterY = bBox.y
-    var side = "top"
-    if (bBox.y > laneY) {
-      enterY = bBox.y
-    } else if (bBox.y + bBox.h < laneY) {
-      enterY = bBox.y + bBox.h
-      side = "bottom"
-    } else {
-      // The lane passes beside the card: come in horizontally at its midline.
-      enterX = aCx < bBox.x ? bBox.x : bBox.x + bBox.w
-      enterY = bMidY
-      side = "side"
-    }
+    var trunkX = root.mapTrunkX
+    var enterY = bBox.y + bBox.h / 2
+    var enterX = bBox.x
 
-    // Leave the card, step sideways into the gap, then run down to the lane.
-    // Leave the card on a stub long enough to read as a line, jog across in the
-    // gap, then run the rest of the way down.
-    var stepY = aBottom + Style.space(16)
-    var pts = [{ x: aCx, y: aBottom }, { x: aCx, y: stepY },
-               { x: dropX, y: stepY }, { x: dropX, y: laneY }]
-    if (side === "side") {
-      // Run along the lane, then bend up (or down) into the gateway's midline.
-      var turnX = enterX + (aCx < bBox.x ? -Style.space(18) : Style.space(18))
-      pts.push({ x: turnX, y: laneY })
-      pts.push({ x: turnX, y: enterY })
-      pts.push({ x: enterX, y: enterY })
-    } else {
-      pts.push({ x: enterX, y: laneY })
-      pts.push({ x: enterX, y: enterY })
-    }
-    return pts
+    // The trunk must genuinely be clear of both the card and the gateway, or
+    // there is no corridor and the honest answer is to draw nothing.
+    if (!(trunkX > aBox.x + aBox.w) || !(trunkX < bBox.x)) return null
+
+    return [
+      { x: aCx,    y: aBottom },
+      { x: aCx,    y: laneY   },
+      { x: trunkX, y: laneY   },
+      { x: trunkX, y: enterY  },
+      { x: enterX, y: enterY  }
+    ]
   }
 
   function machineById(id) {
@@ -1203,6 +1189,11 @@ Panel {
     var rightW = exitW + externalW
     var leftW = Math.max(Style.space(260), w - barW - rightW - Style.space(18))
     var barX = leftW + Style.space(10)
+    // A corridor the grid is not allowed to use, so the trunk that collects
+    // every row lane has somewhere to run without touching a card.
+    var trunkGutter = Style.space(30)
+    var gridW = Math.max(Style.space(200), leftW - trunkGutter)
+    root.mapTrunkX = gridW + trunkGutter / 2
     root.mapSplitX = barX
     root.mapBarWidth = barW
 
@@ -1236,7 +1227,11 @@ Panel {
       if (n <= 0) return y
       var minW = Style.space(88)
       var gapX = Style.space(8)
-      var gapY = Style.space(10)
+      // Machine rows need a gutter wide enough to hold a lane with clearance on
+      // both sides. At 10 the lane was pressed against the cards above and
+      // below it, which is why routing that was technically outside the cards
+      // still read as running through them.
+      var gapY = kind === "machine" ? Style.space(30) : Style.space(10)
       var perRow = Math.max(1, Math.floor((colW + gapX) / (minW + gapX)))
       var rowsUsed = Math.ceil(n / perRow)
       // Spread the cards evenly rather than leaving a ragged last row.
@@ -1247,13 +1242,12 @@ Panel {
       var spanW = cw * columns + gapX * (columns - 1)
       var startX = colX + Math.max(0, (colW - spanW) / 2)
       if (kind === "machine") {
-        var gaps = []
-        for (var g = 0; g < columns - 1; g++)
-          gaps.push(startX + cw * (g + 1) + gapX * g + gapX / 2)
-        // Outside the block counts too, for the first and last columns.
-        gaps.push(startX - gapX / 2)
-        gaps.push(startX + spanW + gapX / 2)
-        root.mapColumnGaps = gaps
+        // One lane per row, centred in the gutter under that row. The last row
+        // gets a lane too: there is nothing below it to cross.
+        var lanes = []
+        for (var r2 = 0; r2 < rowsUsed; r2++)
+          lanes.push(y + (r2 + 1) * cardH + r2 * gapY + gapY / 2)
+        root.mapRowLanes = lanes
       }
       var i, row, r, c
       for (i = 0; i < n; i++) {
@@ -1269,12 +1263,14 @@ Panel {
     }
 
     var machines = root.internalMachines(router)
+    // gridW, not leftW: the trunk corridor is not the grid's to fill.
     var machineBandBottom = colBand(machines, root.osSubline, Style.space(28), "machine",
-                                    root.machineMetric, null, 0, leftW)
-    // Real clearance under the cards. At 12 the lane sat against the card
-    // undersides and the drops became little hooks tucked underneath, which
-    // reads as routing hidden to look tidy rather than routing that is tidy.
-    root.mapGutterY = machineBandBottom + Style.space(26)
+                                    root.machineMetric, null, 0, gridW)
+    // The bottom-most lane is what the panel height has to cover; the lanes
+    // above it sit in gutters the cards already account for.
+    root.mapGutterY = root.mapRowLanes.length
+        ? Number(root.mapRowLanes[root.mapRowLanes.length - 1])
+        : machineBandBottom
 
     // The gateway sits on the grid, centred against the machines it serves.
     // It used to be positioned to meet the collection lane, which pushed it
@@ -1353,9 +1349,9 @@ Panel {
     // Exactly what the content needs. The old 300 floor was reserving room for
     // a LAN bucket that no longer exists, which is where the dead space came
     // from.
-    // The lane sits BELOW the lowest card, so height taken from cards alone
-    // clipped it off the bottom edge along with the drops feeding it.
-    root.mapContentHeight = Math.max(lowest, root.mapGutterY) + Style.space(18)
+    // The bottom row's lane sits BELOW the lowest card, so height taken from
+    // cards alone clipped it off the edge along with the drops feeding it.
+    root.mapContentHeight = Math.max(lowest, root.mapGutterY) + Style.space(16)
 
     root.mapLayout = layout
     if (edgeCanvas) edgeCanvas.requestPaint()
@@ -3538,8 +3534,8 @@ Panel {
                 width: parent.width
                 text: root.glanceTab === "map"
                     ? (root.mapHasExternal
-                        ? "LAN → default gateway → Internet · WAN link is topology only · double-click a name to rename"
-                        : "Machines → gateway → internet · Flow = measured throughput · double-click a name to rename")
+                        ? "LAN → gateway → Internet · solid = measured traffic, dashed = no telemetry · double-click a name to rename"
+                        : "Machines → gateway → internet · solid = measured traffic, dashed = no telemetry · double-click a name to rename")
                     : "Dash · colour lights · Move to LAN for noise"
                 color: root.inkDim
                 font.family: root.fontFamily
@@ -3719,6 +3715,17 @@ Panel {
                 for (var i = 0; i < list.length; i++) {
                   var r = list[i]
                   var pts = r.points
+                  // A link with no telemetry looked exactly like a measured
+                  // link that happens to be idle: both are a static line. That
+                  // reads as "the map is broken" rather than "nothing is
+                  // measuring this box", so an unmeasured link is dashed.
+                  // Only hosts whose byte counters can be read report rates, so
+                  // most discovered devices are legitimately unmeasured.
+                  var unmeasured = !r.measured && !r.internetLink
+                  // Both strokes carry the dash. Dashing only the thin line
+                  // left the wider underglow solid underneath it, which filled
+                  // the gaps back in and made the link look solid anyway.
+                  if (unmeasured) ctx.setLineDash([Style.space(4), Style.space(5)])
                   // WAN emphasis is fixed; other widths track endpoint rates.
                   ctx.strokeStyle = Qt.alpha(r.color, r.down ? 0.20 : 0.26)
                   ctx.lineWidth = r.width
@@ -3733,6 +3740,7 @@ Panel {
                   ctx.moveTo(pts[0].x, pts[0].y)
                   for (j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y)
                   ctx.stroke()
+                  if (unmeasured) ctx.setLineDash([])
                   // Static terminal sockets make the exit read as a physical
                   // connection. Their size is constant, never a traffic signal.
                   if (r.internetLink) {

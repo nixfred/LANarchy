@@ -3,6 +3,31 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.19.0 - 2026-09-17
+
+- **No wire crosses a card any more.** Every machine uplink ran down to a single
+  lane beneath the whole grid, so once the grid wrapped to a second row, every
+  card in the first row had to get past the second row to reach it. The only way
+  through was the 8px gap between two columns, which put the wire on the card
+  borders: traffic appearing to run through the cards. Each row now has its own
+  lane in the gutter directly below it, and those lanes empty into one vertical
+  trunk in a corridor reserved to the right of the grid. Four segments, each in
+  space nothing is drawn in: down into its own row's lane, right along that
+  lane, down the trunk, then into the gateway's left face at its midline
+- **Rows have a real gutter.** The 10px gap between machine rows could not hold
+  a lane with clearance on either side, so routing that was technically outside
+  the cards still read as running through them
+- **A link with no telemetry is dashed.** It used to look exactly like a
+  measured link that happens to be idle, because both are a static line, which
+  reads as "the map is broken" rather than "nothing is measuring this box". Only
+  hosts whose byte counters can be read report rates, so most discovered devices
+  are legitimately unmeasured. The legend says which is which
+- **Removed the last motion that was not data.** A set of helpers made an
+  unmeasured link's dashes crawl at a tenth pace: movement with nothing measured
+  behind it. Nothing called them any more, but the comment still promised the
+  behaviour. The only thing that moves on the map is a packet standing for bytes
+  something actually counted
+
 ## 0.18.1 - 2026-09-17
 
 - **One flapping device no longer fills "what just changed".** A sleeping phone
