@@ -3,6 +3,26 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.18.0 - 2026-09-17
+
+- **The map uses its whole width.** The layout reserved a 23% band for the
+  router zone and a 34% rail for externals, so more than half the map was held
+  for a zone divider that no longer exists and an internet card that is now an
+  arrow. Only what the gateway card and the exit label actually occupy is
+  reserved; everything else goes to the machines
+- **The gateway is centred on the grid it serves.** It was positioned to meet
+  the collection lane, which pushed it off-centre against every other card: the
+  card was being bent to fit the wiring. The wiring bends now, not the card, and
+  an uplink arriving beside the gateway runs along the lane and turns into its
+  midline
+- **Traffic no longer hides under the cards.** The collection lane sat 12px
+  below the card undersides, so the drops feeding it read as little hooks tucked
+  out of sight. The lane has real clearance and each drop leaves its card on a
+  stub long enough to read as a line
+- **Fixed: the collection lane was clipped off the bottom.** Map height was
+  measured from the lowest card, but the lane runs below it, so the lane and its
+  feeders were cut at the panel edge
+
 ## 0.17.1 - 2026-09-17
 
 - **Actually absorbs a curated router this time.** The 0.17.0 change did not

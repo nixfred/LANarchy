@@ -651,27 +651,36 @@ Panel {
         dropX = root.mapColumnGaps[gi]
       }
     }
+    // Enter the gateway on the face that points back at the lane, and enter it
+    // at its own centre so the bend is in the line, not in the card.
+    var bMidY = bBox.y + bBox.h / 2
     var enterX = bBox.x + bBox.w / 2
     var enterY = bBox.y
     var side = "top"
-    // Approach the gateway from whichever face actually points at the lane.
     if (bBox.y > laneY) {
       enterY = bBox.y
     } else if (bBox.y + bBox.h < laneY) {
       enterY = bBox.y + bBox.h
       side = "bottom"
     } else {
+      // The lane passes beside the card: come in horizontally at its midline.
       enterX = aCx < bBox.x ? bBox.x : bBox.x + bBox.w
-      enterY = laneY
+      enterY = bMidY
       side = "side"
     }
 
     // Leave the card, step sideways into the gap, then run down to the lane.
-    var stepY = aBottom + Style.space(6)
+    // Leave the card on a stub long enough to read as a line, jog across in the
+    // gap, then run the rest of the way down.
+    var stepY = aBottom + Style.space(16)
     var pts = [{ x: aCx, y: aBottom }, { x: aCx, y: stepY },
                { x: dropX, y: stepY }, { x: dropX, y: laneY }]
     if (side === "side") {
-      pts.push({ x: enterX, y: laneY })
+      // Run along the lane, then bend up (or down) into the gateway's midline.
+      var turnX = enterX + (aCx < bBox.x ? -Style.space(18) : Style.space(18))
+      pts.push({ x: turnX, y: laneY })
+      pts.push({ x: turnX, y: enterY })
+      pts.push({ x: enterX, y: enterY })
     } else {
       pts.push({ x: enterX, y: laneY })
       pts.push({ x: enterX, y: enterY })
@@ -1178,10 +1187,19 @@ Panel {
     root.mapHasExternal = externals.length > 0 || root.wan !== null
 
     // Reserve a compact exit assembly; extra width belongs to the LAN grid.
-    var barW = root.mapHasExternal ? Math.min(Style.space(176), w * 0.23) : 0
-    var rightW = root.mapHasExternal ? Math.min(Style.space(252), w * 0.34) : 0
-    var leftW = w - barW - rightW
-    var barX = leftW
+    // Width goes to the machines. The old split reserved a 23% router band and
+    // a 34% external rail, so more than half the map was held for a zone
+    // divider that no longer exists and an internet card that is now an arrow.
+    // Only what the gateway card and the exit label actually occupy is kept.
+    var gatewayW = root.gateway || root.mapHasExternal ? Style.space(190) : 0
+    var exitW = root.wan ? Style.space(166) : 0
+    var externalW = externals.length
+        ? Math.min(Style.space(200), Math.max(Style.space(140), w * 0.16)) : 0
+
+    var barW = gatewayW
+    var rightW = exitW + externalW
+    var leftW = Math.max(Style.space(260), w - barW - rightW - Style.space(18))
+    var barX = leftW + Style.space(10)
     root.mapSplitX = barX
     root.mapBarWidth = barW
 
@@ -1250,17 +1268,24 @@ Panel {
     var machines = root.internalMachines(router)
     var machineBandBottom = colBand(machines, root.osSubline, Style.space(28), "machine",
                                     root.machineMetric, null, 0, leftW)
-    root.mapGutterY = machineBandBottom + Style.space(12)
+    // Real clearance under the cards. At 12 the lane sat against the card
+    // undersides and the drops became little hooks tucked underneath, which
+    // reads as routing hidden to look tidy rather than routing that is tidy.
+    root.mapGutterY = machineBandBottom + Style.space(26)
 
-    // Anchor the exit to the collection lane, independent of the panel height.
-    // More machine rows move the whole exit down without a sizing feedback loop.
-    root.mapEgressY = Math.max(Style.space(48), root.mapGutterY - root.mapEgressH / 2)
+    // The gateway sits on the grid, centred against the machines it serves.
+    // It used to be positioned to meet the collection lane, which pushed it
+    // off-centre relative to every other card: the cards were being bent to fit
+    // the wiring. The wiring bends instead.
+    var gridTop = Style.space(28)
+    root.mapEgressY = Math.max(gridTop,
+        gridTop + (machineBandBottom - gridTop - root.mapEgressH) / 2)
 
     // Prefer the real default gateway on the router boundary.
     // Never place the same hub id twice (left gateway + bar).
     var hubOnRouterBar = false
     if (root.mapHasExternal) {
-      var rw = barW - Style.space(16)
+      var rw = Math.max(Style.space(150), barW - Style.space(6))
       var rh = root.mapEgressH
       var ry = root.mapEgressY
       if (root.gateway) {
@@ -1305,7 +1330,7 @@ Panel {
     // an arrow leaving the gateway, drawn in the margin, costing no layout.
 
     if (externals.length) {
-      var railX = barX + barW
+      var railX = barX + barW + Style.space(6)
       var cw = Math.min(Style.space(120), Math.max(Style.space(96), rightW - Style.space(16)))
       var gapY = Style.space(10)
       var startY = Style.space(36)
@@ -1325,7 +1350,9 @@ Panel {
     // Exactly what the content needs. The old 300 floor was reserving room for
     // a LAN bucket that no longer exists, which is where the dead space came
     // from.
-    root.mapContentHeight = lowest + Style.space(20)
+    // The lane sits BELOW the lowest card, so height taken from cards alone
+    // clipped it off the bottom edge along with the drops feeding it.
+    root.mapContentHeight = Math.max(lowest, root.mapGutterY) + Style.space(18)
 
     root.mapLayout = layout
     if (edgeCanvas) edgeCanvas.requestPaint()
