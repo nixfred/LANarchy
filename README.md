@@ -278,7 +278,7 @@ The collector is gated so a closed panel is not a permanent background scan:
 | `batteryBackoff` | `true` | `false` restores the old always-on pace |
 | `closedIntervalSec` | unset | Explicit panel-closed interval on mains |
 
-Open the panel and you always get the full `refreshIntervalSec` pace. A desktop with
+Open the panel and you always get the full `probeIntervalSec` pace. A desktop with
 no battery and no `homeGatewayMac` behaves exactly as before.
 
 Empty inventory writes are refused. Setup/form saves go through `inventory_cli.py` only when you act — nothing silent.
