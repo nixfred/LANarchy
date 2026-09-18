@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.15.1-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.15.2-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -224,7 +224,7 @@ Right-click the icon to pick what it shows:
 | `downs` (default) | `3↓` when something is down, `2!` when degraded, `✓` when all is well |
 | `upfrac` | `12/14` up over tracked |
 | `worstrtt` | the slowest node's RTT |
-| `wan` | `↓ down ↑ up` through the router |
+| `hosts` | `↓ down ↑ up`, summed over hosts with telemetry |
 | `none` | icon only |
 
 The mark itself still colours green / amber / red and alarms when a node goes down.

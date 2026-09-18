@@ -2985,6 +2985,71 @@ Panel {
   readonly property int glanceDownCount: root.labHealth.down
   readonly property int glanceDegradedCount: root.labHealth.degraded
 
+  readonly property var barDisplayModes: [
+    { key: "downs", label: "Down count", hint: "3↓ when something is down, a tick when all is well" },
+    { key: "upfrac", label: "Up / total", hint: "12/14" },
+    { key: "worstrtt", label: "Worst latency", hint: "the slowest node's RTT" },
+    { key: "hosts", label: "Host traffic", hint: "↓ down ↑ up, summed over hosts with telemetry" },
+    { key: "none", label: "Icon only", hint: "no text, just the castle" }
+  ]
+
+  readonly property string barDisplay: {
+    var v = String((root.invSettings && root.invSettings.barDisplay) || "downs")
+    if (v === "wan") v = "hosts"   // renamed: it was never WAN throughput
+    for (var i = 0; i < root.barDisplayModes.length; i++)
+      if (root.barDisplayModes[i].key === v) return v
+    return "downs"
+  }
+
+  function setBarDisplay(key) {
+    var settings = ({})
+    var k
+    for (k in root.invSettings) settings[k] = root.invSettings[k]
+    settings.barDisplay = String(key || "downs")
+    root.invSettings = settings
+    root.view = "glance"
+    if (!root.inventoryReady || root.inventoryLoading) return
+    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return
+    root.runInventoryWrite(root.inventoryWritePayload(root.nodes, settings))
+  }
+
+  readonly property int glanceTotalCount: root.machines.length + root.groups.length
+
+  readonly property real glanceWorstRtt: {
+    var worst = -1
+    for (var i = 0; i < root.machines.length; i++) {
+      var v = Number(root.machines[i].rtt_ms)
+      if (isFinite(v) && v > worst) worst = v
+    }
+    return worst
+  }
+
+  readonly property string barText: {
+    if (!root.asOf) return "…"
+    var mode = root.barDisplay
+    if (mode === "none") return ""
+    if (mode === "downs")
+      return root.glanceDownCount > 0 ? (root.glanceDownCount + "↓")
+          : (root.glanceDegradedCount > 0 ? (root.glanceDegradedCount + "!") : "✓")
+    if (mode === "upfrac") {
+      var total = root.glanceTotalCount
+      if (total <= 0) return ""
+      return (total - root.glanceDownCount) + "/" + total
+    }
+    if (mode === "worstrtt") {
+      var r = root.glanceWorstRtt
+      if (!(r >= 0)) return "—"
+      return (r >= 100 ? Math.round(r) : Math.round(r * 10) / 10) + "ms"
+    }
+    if (mode === "hosts") {
+      var t = root.lanTrafficTotals()
+      var d = root.fmtRate(t.rx_bps)
+      var u = root.fmtRate(t.tx_bps)
+      return (d || u) ? ("↓" + (d || "0") + " ↑" + (u || "0")) : "idle"
+    }
+    return ""
+  }
+
   readonly property color barHealthColor: {
     if (root.glanceDownCount > 0) return (root.themeRed && String(root.themeRed) !== "") ? root.themeRed : root.urgent
     if (root.glanceDegradedCount > 0) return root.themeYellow

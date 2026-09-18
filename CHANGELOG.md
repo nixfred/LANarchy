@@ -3,6 +3,16 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.15.2 - 2026-09-17
+
+- **Fixed: the right-click bar chooser showed its heading and no options.** The
+  0.13.0 health rewrite replaced a block of the file that also held
+  `barDisplayModes`, `barText` and `setBarDisplay`, so the chooser's model was
+  undefined and its Repeater produced nothing. Restored
+- The readout mode formerly called **WAN rates** is now **Host traffic**, because
+  that is what it sums: the interface counters of hosts with telemetry. An
+  existing `barDisplay: wan` setting is migrated
+
 ## 0.15.1 - 2026-09-17
 
 - **The way out is just a chain now.** Gone: the full-height vertical line down
