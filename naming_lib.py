@@ -82,6 +82,41 @@ def is_serialish(text: str | None) -> bool:
     return digits >= 3 and uppers >= 3
 
 
+def name_key(mac: object, ip: object = None) -> str | None:
+    """The identity a user-chosen name is anchored to.
+
+    MAC first, always. An address is a lease: it moves when DHCP feels like it,
+    and naming a box by its address means the name follows whatever answers on
+    that address next. An address key is only used when no MAC can be learned at
+    all, which on a LAN means the host is not a neighbour (routed, or remote).
+    """
+    m = str(mac or "").strip().lower().replace("-", ":")
+    if len(m) == 17:
+        return "mac:" + m
+    i = str(ip or "").strip()
+    return ("ip:" + i) if i else None
+
+
+def apply_name(row: dict, overrides: dict) -> dict:
+    """Stamp a user's chosen name onto one row, wherever that row is shown.
+
+    A name the user set has to win everywhere: map card, list, setup, detail and
+    notifications. Doing it in one place is what makes that true.
+    """
+    if not isinstance(row, dict) or not overrides:
+        return row
+    key = name_key(row.get("mac"), row.get("ip"))
+    chosen = overrides.get(key) if key else None
+    if not chosen:
+        return row
+    current = str(row.get("label") or "")
+    if current and current != chosen:
+        row.setdefault("discoveredLabel", current)
+    row["label"] = chosen
+    row["renamed"] = True
+    return row
+
+
 def is_identifier(text: str | None) -> bool:
     """True when a string names a device to a machine but not to a person."""
     s = str(text or "").strip()

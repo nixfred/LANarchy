@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "donnie.homelab-mesh",
   "name": "Lanarchy",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "author": "Donnie Fiander",
   "license": "MIT",
   "description": "Homelab status map and list in the Omarchy bar — machines, Caddy services, UniFi, and Find hosts.",

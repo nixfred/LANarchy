@@ -3,6 +3,20 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.10.0 - 2026-09-17
+
+- **A name you set is anchored to the MAC, and follows the box everywhere.** An
+  address is a lease: naming by address means the name follows whatever answers
+  there next. Names key on the hardware, and fall back to an address only when no
+  MAC can be learned at all
+- **One place applies it.** Every row the plugin shows passes through the same
+  stamp, so a rename reaches the map, the list, Setup, the detail pane and the
+  notifications together. The discovered name is kept as `discoveredLabel`
+- Editing a node's **Label** in the form now also records the MAC-anchored name,
+  so the two ways of naming a box agree
+- Inventory nodes learn their MAC automatically, from the node, then history,
+  then the ARP table, so a name has something durable to attach to
+
 ## 0.9.3 - 2026-09-17
 
 - **Rename could not be typed into.** The key catcher was switched off with

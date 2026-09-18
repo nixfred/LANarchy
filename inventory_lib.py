@@ -241,6 +241,8 @@ def name_overrides(inv: dict) -> dict[str, str]:
     Keyed the same way a dismissal is, by hardware first, so the name survives a
     DHCP move.
     """
+    from naming_lib import name_key
+
     rows = inv.get("names") if isinstance(inv, dict) else None
     if not isinstance(rows, list):
         return {}
@@ -248,7 +250,7 @@ def name_overrides(inv: dict) -> dict[str, str]:
     for row in rows:
         if not isinstance(row, dict):
             continue
-        key = ignore_key(row.get("mac"), row.get("ip"))
+        key = name_key(row.get("mac"), row.get("ip"))
         label = _as_str(row.get("label"))
         if key and label:
             out[key] = label

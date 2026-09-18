@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.9.3-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.10.0-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -137,6 +137,23 @@ on a busy LAN includes TVs and phones, so it is the deliberate option rather tha
 the recommended one.
 
 Without UniFi secrets, Search still runs mDNS + ARP with weaker names.
+
+---
+
+## Naming
+
+Lanarchy works the name out for you first, from the mDNS host record, reverse DNS,
+`hostname -s` over SSH, and UniFi client names when a key is configured. Sonos
+rooms, model serials and pairing ids are unpicked into something readable.
+
+When you disagree, rename it: select a card and press **Rename**, or edit **Label**
+in Setup. **The name is stored against the MAC, not the address**, because an
+address is a DHCP lease and will eventually belong to something else. It applies
+everywhere at once: map, list, Setup, detail and notifications. The discovered
+name is kept underneath as `discoveredLabel`.
+
+A node with no learnable MAC (routed or off-LAN) anchors to its address instead,
+which is the weaker option and the only one available for such a host.
 
 ---
 

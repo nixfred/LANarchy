@@ -1723,6 +1723,9 @@ Panel {
         else next.push(root.nodes[i])
       }
     }
+    // Anchor the name to the hardware as well as the node, so it keeps working
+    // if the box changes address, and so it shows up on every surface.
+    root.rememberName(node, String(root.formLabel || "").trim())
     writeNodes(next)
   }
 
@@ -1849,6 +1852,36 @@ Panel {
   // Your name for a box, kept against the hardware so it survives a DHCP move.
   // Works for a discovered machine you never curated, which otherwise had no
   // way to be called anything but its address.
+  // A name belongs to a MAC. An address is a lease; naming by address means the
+  // name follows whatever answers there next.
+  function nameKeyFor(row) {
+    if (!row) return ""
+    var mac = String(row.mac || "").toLowerCase().replace(/-/g, ":")
+    if (mac.length === 17) return "mac:" + mac
+    var ip = String(row.ip || "")
+    return ip ? "ip:" + ip : ""
+  }
+
+  function rememberName(row, label) {
+    var key = root.nameKeyFor(row)
+    if (!key || !label) return
+    var entry = ({ label: label })
+    if (key.indexOf("mac:") === 0) entry.mac = key.substring(4)
+    else entry.ip = key.substring(3)
+
+    var names = (root.invNames instanceof Array ? root.invNames.slice() : [])
+    var replaced = false
+    for (var i = 0; i < names.length; i++) {
+      if (root.nameKeyFor(names[i]) === key) {
+        names[i] = entry
+        replaced = true
+        break
+      }
+    }
+    if (!replaced) names.push(entry)
+    root.invNames = names
+  }
+
   function renameRow(row, newLabel) {
     var label = String(newLabel || "").trim()
     if (!row || !label) {
@@ -1874,27 +1907,14 @@ Panel {
       return
     }
 
-    var entry = ({})
-    if (row.mac) entry.mac = String(row.mac).toLowerCase()
-    else if (row.ip) entry.ip = String(row.ip)
-    else return
-    entry.label = label
-
-    var names = (root.invNames instanceof Array ? root.invNames.slice() : [])
-    var replaced = false
-    for (var j = 0; j < names.length; j++) {
-      var m = names[j]
-      if ((entry.mac && String(m.mac || "").toLowerCase() === entry.mac)
-          || (entry.ip && !entry.mac && String(m.ip || "") === entry.ip)) {
-        names[j] = entry
-        replaced = true
-        break
-      }
+    if (!root.nameKeyFor(row)) {
+      root.inventoryError = "No MAC or address to anchor a name to"
+      root.renaming = false
+      return
     }
-    if (!replaced) names.push(entry)
-    root.invNames = names
+    root.rememberName(row, label)
     root.renaming = false
-    root.writeInventoryWithOverrides(root.invIgnored, names)
+    root.writeInventoryWithOverrides(root.invIgnored, root.invNames)
   }
 
   function writeInventoryWithOverrides(ignored, names) {

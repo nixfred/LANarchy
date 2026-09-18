@@ -86,6 +86,51 @@ def test_is_identifier() -> None:
     assert not is_identifier("Living Room")
 
 
+def test_name_key_prefers_mac_over_address() -> None:
+    """An address is a lease. A name must follow the hardware, not the lease."""
+    from naming_lib import name_key
+
+    assert name_key("78:55:36:04:2F:01", "10.0.0.169") == "mac:78:55:36:04:2f:01"
+    assert name_key("78-55-36-04-2f-01", None) == "mac:78:55:36:04:2f:01"
+    # only when there is no MAC to anchor to
+    assert name_key(None, "10.0.0.169") == "ip:10.0.0.169"
+    assert name_key(None, None) is None
+    assert name_key("nonsense", "10.0.0.1") == "ip:10.0.0.1"
+
+
+def test_apply_name_overrides_and_keeps_what_was_discovered() -> None:
+    from naming_lib import apply_name
+
+    row = {"label": "10.0.0.169", "mac": "78:55:36:04:2f:01", "ip": "10.0.0.169"}
+    apply_name(row, {"mac:78:55:36:04:2f:01": "hive"})
+    assert row["label"] == "hive"
+    assert row["discoveredLabel"] == "10.0.0.169"
+    assert row["renamed"] is True
+
+
+def test_apply_name_follows_the_box_to_a_new_address() -> None:
+    from naming_lib import apply_name
+
+    overrides = {"mac:78:55:36:04:2f:01": "hive"}
+    moved = {"label": "10.0.0.240", "mac": "78:55:36:04:2f:01", "ip": "10.0.0.240"}
+    apply_name(moved, overrides)
+    assert moved["label"] == "hive", "a DHCP move must not lose the name"
+
+    # and an unrelated box that inherits the old address is NOT renamed
+    stranger = {"label": "10.0.0.169", "mac": "aa:bb:cc:dd:ee:ff", "ip": "10.0.0.169"}
+    apply_name(stranger, overrides)
+    assert stranger["label"] == "10.0.0.169"
+
+
+def test_apply_name_is_a_noop_without_an_override() -> None:
+    from naming_lib import apply_name
+
+    row = {"label": "fnix", "mac": "6c:6e:07:1e:75:3c"}
+    apply_name(row, {})
+    assert row["label"] == "fnix" and "renamed" not in row
+
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(list(globals().items())):
         if _name.startswith("test_") and callable(_fn):

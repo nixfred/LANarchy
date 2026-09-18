@@ -35,6 +35,7 @@ from inventory_lib import (
     probe_fallback_host,
     probe_target,
 )
+from naming_lib import apply_name, name_key
 from notify_lib import process_probe_glance
 from os_lib import identify
 from plugin_paths import (
@@ -47,6 +48,7 @@ from plugin_paths import (
 from unifi_lib import collect_unifi, fmt_mac
 from speedtest_lib import resolve_speedtest_url, run_speedtest
 from telemetry_lib import (
+    neighbors,
     collect_machine,
     dns_time_ms,
     http_timing,
@@ -384,6 +386,34 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         machines = [f.result() for f in machines_f]
         host_rows = [f.result() for f in all_host_f]
         proxies = [f.result() for f in proxies_f]
+
+        by_node_id = {str(n.get("id") or ""): n for n in nodes if isinstance(n, dict)}
+
+        # A user's name is anchored to hardware, so every row needs its MAC.
+        # Inventory nodes rarely carry one, so learn it: the node's own field,
+        # then what history remembered, then the current ARP table.
+        mac_by_ip = {}
+        for entry in neighbors():
+            if entry.get("ip") and entry.get("mac"):
+                mac_by_ip.setdefault(entry["ip"], entry["mac"])
+        for row in machines + host_rows + proxies:
+            nid = str(row.get("id") or "")
+            node = by_node_id.get(nid) or {}
+            mac = node.get("mac") or node_meta(hist, nid).get("mac")
+            if not mac:
+                mac = mac_by_ip.get(str(node.get("ip") or "")) or mac_by_ip.get(str(row.get("host") or ""))
+            if mac:
+                row["mac"] = str(mac).lower()
+                set_node_meta(hist, nid, {"mac": row["mac"]})
+            if node.get("ip") and not row.get("ip"):
+                row["ip"] = node["ip"]
+
+        # One place where a user's chosen name is stamped on. Anything shown
+        # anywhere passes through here, so a rename follows the device into the
+        # map, the list, setup, the detail pane and the notifications.
+        chosen_names = name_overrides(inv)
+        for row in machines + host_rows + proxies:
+            apply_name(row, chosen_names)
         meta = meta_f.result()
         try:
             unifi = unifi_f.result()
@@ -437,13 +467,14 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
     candidates = merge_discover(found, unifi.get("discover") or [], known=known_targets(nodes, hist))
     dismissed = ignored_keys(inv)
     renamed = name_overrides(inv)
+    chosen_names = renamed
     auto_rows: list[dict] = []
     device_rows: list[dict] = []
     for cand in candidates:
         key = ignore_key(cand.get("mac"), cand.get("ip"))
         if key and key in dismissed:
             continue
-        own_name = renamed.get(key or "")
+        own_name = renamed.get(name_key(cand.get("mac"), cand.get("ip")) or "")
         row = {
             "id": "auto:" + (key or str(cand.get("ip") or cand.get("label") or "")),
             "label": own_name or str(cand.get("label") or cand.get("ip") or "device"),
