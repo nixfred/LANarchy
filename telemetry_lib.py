@@ -90,6 +90,25 @@ def local_addresses() -> set[str]:
     return out
 
 
+def local_macs() -> set[str]:
+    """Every MAC on this machine, including the interfaces it is not using.
+
+    A laptop with wifi and ethernet is two entries in its own ARP-adjacent view,
+    and announcing yourself as a new device on your own network is absurd.
+    """
+    out: set[str] = set()
+    try:
+        import json
+
+        for entry in json.loads(_run(["ip", "-j", "link"], 2) or "[]"):
+            mac = str(entry.get("address") or "").strip().lower()
+            if len(mac) == 17 and mac != "00:00:00:00:00:00":
+                out.add(mac)
+    except (ValueError, TypeError):
+        pass
+    return out
+
+
 def is_local_host(host: str) -> bool:
     if not host:
         return False

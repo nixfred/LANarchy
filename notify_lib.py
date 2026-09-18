@@ -192,7 +192,10 @@ def apply_arrival_alerts(inv: dict, glance: dict) -> list[dict[str, Any]]:
     settings = inv.get("settings") if isinstance(inv.get("settings"), dict) else {}
     if settings.get("newDeviceNotify") is False:
         return []
-    arrivals = glance.get("new_devices")
+    # Only what the ledger announced on this pass. `new_devices` is the 24-hour
+    # tray and is rebuilt every probe; notifying on it re-announced every device
+    # in the tray every cycle.
+    arrivals = glance.get("new_devices_announce")
     if not isinstance(arrivals, list) or not arrivals:
         return []
 

@@ -50,11 +50,15 @@ from plugin_paths import (
 from unifi_lib import collect_unifi, fmt_mac
 from speedtest_lib import resolve_speedtest_url, run_speedtest
 from telemetry_lib import (
+    local_addresses,
+    local_macs,
     neighbors,
     collect_machine,
     dns_time_ms,
     http_timing,
     link_grade,
+    local_addresses,
+    local_macs,
     neighbors,
     default_gateway,
     primary_link,
@@ -519,11 +523,9 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         key = ignore_key(cand.get("mac"), cand.get("ip"))
         if key and key in dismissed:
             continue
-        own_name = renamed.get(name_key(cand.get("mac"), cand.get("ip")) or "")
         row = {
             "id": "auto:" + (key or str(cand.get("ip") or cand.get("label") or "")),
-            "label": own_name or str(cand.get("label") or cand.get("ip") or "device"),
-            "renamed": bool(own_name),
+            "label": str(cand.get("label") or cand.get("ip") or "device"),
             "host": str(cand.get("host") or cand.get("ip") or ""),
             "ip": cand.get("ip"),
             "mac": cand.get("mac"),
@@ -534,6 +536,10 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             "randomizedMac": bool(cand.get("randomizedMac")),
             "services": cand.get("services") or [],
         }
+        # Same stamp as every other row, so a renamed box keeps the name
+        # discovery found underneath it.
+        apply_name(row, renamed)
+
         if str(cand.get("type") or "") == "machine":
             # A box you can log into earns a place on the map without being
             # curated first.
@@ -555,19 +561,37 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
     # that the user has not already dealt with is an arrival.
     ledger = load_ledger()
     observed = list(candidates) + [r for r in machines + host_rows + proxies if r.get("mac")]
-    observe(ledger, observed)
+    # What arrived on THIS pass. observe() announces a device once and never
+    # again; this is the only thing that may raise a notification.
+    announced_now = observe(ledger, observed)
     prune(ledger)
     save_ledger(ledger)
 
     acknowledged = set(dismissed)
+    # This machine is not a stranger on its own network. A laptop has a MAC per
+    # interface, so without this it announces itself every time it switches
+    # between wifi and ethernet.
+    for own in local_macs():
+        acknowledged.add("mac:" + own)
+    mine = local_addresses()
     for node in nodes:
         m = str(node.get("mac") or "")
         if m:
             acknowledged.add("mac:" + m.lower())
-    arrivals_now = [
-        row for row in recent_arrivals(ledger)
-        if ("mac:" + row["mac"]) not in acknowledged
-    ]
+
+    def unacknowledged(rows):
+        return [
+            r for r in rows
+            if ("mac:" + str(r.get("mac") or "")) not in acknowledged
+            and str(r.get("ip") or "") not in mine
+        ]
+
+    # Two different lists, which is where this went wrong: the tray is everything
+    # that arrived in the last day and is redrawn every probe, while the alert is
+    # only what arrived just now. Notifying on the tray meant every device in it
+    # was announced again on every single cycle.
+    arrivals_now = unacknowledged(recent_arrivals(ledger))
+    announced_now = unacknowledged(announced_now)
 
     by_id: dict[str, dict] = {}
     for row in machines + host_rows + proxies:
@@ -595,6 +619,7 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             + [str(g.get("id") or "") for g in dash.get("services") or []],
         ),
         "new_devices": arrivals_now,
+        "new_devices_announce": announced_now,
         "events": recent_events(hist, 6),
         "flaps": flap_counts(hist, 1.0),
     }

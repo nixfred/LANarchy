@@ -85,6 +85,24 @@ def test_randomized_mac_is_carried_through() -> None:
     assert recent_arrivals(led)[0]["randomized"] is True
 
 
+def test_the_tray_is_not_the_alert_list() -> None:
+    """The tray is everything from the last day and is rebuilt every probe. The
+    alert is only what arrived on this pass.
+
+    Notifying on the tray re-announced every device in it on every cycle, which
+    on a 15s probe meant the same box alerting four times a minute, forever.
+    """
+    led = empty_ledger()
+    observe(led, RESIDENT)
+
+    alerts = 0
+    for _ in range(10):
+        alerts += len(observe(led, STRANGER))
+
+    assert alerts == 1, "an arrival is announced once"
+    assert len(recent_arrivals(led)) == 1, "but it stays in the tray"
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(list(globals().items())):
         if _name.startswith("test_") and callable(_fn):
