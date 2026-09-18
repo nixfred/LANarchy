@@ -66,11 +66,17 @@ def cmd_write(path: Path, json_file: Path) -> int:
     if isinstance(raw, list):
         raw = {"schemaVersion": 2, "nodes": raw}
     nodes = raw.get("nodes") if isinstance(raw, dict) else None
-    if not isinstance(nodes, list) or len(nodes) == 0:
+    # A payload with no `nodes` key is an overrides-only write: keep whatever is
+    # on disk. Every override write used to resend the panel's in-memory node
+    # list, so a node added since that copy was taken was silently dropped.
+    overrides_only = isinstance(raw, dict) and "nodes" not in raw
+    if not overrides_only and (not isinstance(nodes, list) or len(nodes) == 0):
         print(json.dumps({"error": "refusing empty inventory write"}), file=sys.stderr)
         return 1
     if path.exists():
         current = load_inventory(path)
+        if overrides_only:
+            raw["nodes"] = current.get("nodes") or []
         # Overrides are preserved exactly like settings/edges. Omitting them
         # used to erase them, so dismissing a device or renaming a box was
         # silently undone by the next ordinary save.

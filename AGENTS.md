@@ -49,6 +49,10 @@ A pull request that changes behaviour without a version bump is incomplete: the
 user cannot tell which build they are running, and a bug report cannot be tied to
 a release.
 
+### Commits
+
+Never add `Co-authored-by: Cursor` (or any Cursor/agent co-author trailer). Commits are the user's alone.
+
 ### Secrets
 
 Never commit `unifi-secrets.json`, inventory dumps with keys, or snapshots from a live mesh. Examples only (e.g. `unifi-secrets.json.example`).

@@ -3,6 +3,24 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.16.0 - 2026-09-17
+
+- **A device you add by hand gets its own card.** Adding `Spike-iPhone` classed it
+  as a `host`, and hosts are collapsed into the LAN bucket, so it vanished into a
+  cluster instead of appearing on the map. That is also why a LAN BUCKET card
+  suddenly existed. `host` is for reverse-proxy names, not for something you just
+  asked to see
+- **Fixed: an overrides write could delete nodes.** Ignoring, renaming or changing
+  a setting resent the panel's in-memory node list, so any node added since that
+  copy was taken was silently dropped. Overrides now send no nodes at all and the
+  collector keeps what is on disk
+- **Adding something takes you to it.** The row leaves the "to add" list
+  immediately and the panel returns to the map, instead of leaving you sitting in
+  Setup wondering whether it worked
+- **The panel always opens on the map**, rather than whichever tab was last used
+- Escape cancels an edit in progress before it navigates anywhere, deleting a node
+  leaves its form, and leaving Setup returns to the map
+
 ## 0.15.2 - 2026-09-17
 
 - **Fixed: the right-click bar chooser showed its heading and no options.** The

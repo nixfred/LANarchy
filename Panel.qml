@@ -1456,8 +1456,10 @@ Panel {
 
   function goGlance() {
     root.view = "glance"
+    root.glanceTab = "map"
     root.formConfirmDelete = false
     root.formFieldFocused = false
+    root.cancelInlineEdit()
     if (root.opened) refresh()
   }
 
@@ -1649,6 +1651,16 @@ Panel {
   }
 
   function navigateBack() {
+    // An edit in progress is the innermost thing on screen; Esc belongs to it
+    // before it belongs to the view.
+    if (root.editingId !== "") {
+      root.cancelInlineEdit()
+      return
+    }
+    if (root.renaming) {
+      root.renaming = false
+      return
+    }
     if (root.view === "barmenu") {
       root.view = "glance"
       return
@@ -1818,6 +1830,9 @@ Panel {
       root.formConfirmDelete = true
       return
     }
+    // The node being edited is about to stop existing, so the form it is being
+    // edited in has to go with it.
+    root.view = "setup"
     var next = []
     var i
     for (i = 0; i < root.nodes.length; i++) {
@@ -1836,7 +1851,10 @@ Panel {
     if (!c) return null
     var label = root.cleanDiscoverLabel(c.label || c.host || c.ip || "")
     if (!label) return null
-    var isMachine = String(c.type || "") === "machine"
+    // Adding something is a deliberate act: you want to see it. `host` exists to
+    // collapse reverse-proxy names into the LAN bucket, not to hide a device you
+    // just asked for. Anything you add by hand gets its own card.
+    var isMachine = String(c.type || "") === "machine" || c.addedByHand === true
     var node = {
       type: isMachine ? "machine" : "host",
       label: label,
@@ -1927,6 +1945,7 @@ Panel {
       return
     }
     root.findHostsHint = "Added " + added + (onlyMachines ? " machine" : " host") + (added === 1 ? "" : "s")
+    root.returnToMap()
     root.writeNodes(next)
   }
 
@@ -2024,13 +2043,17 @@ Panel {
     root.writeInventoryWithOverrides(root.invIgnored, root.invNames)
   }
 
+  // Overrides only. Deliberately sends NO nodes: the panel's copy can be older
+  // than the file (a node added from another view, or by another instance), and
+  // resending it would delete whatever it does not know about.
   function writeInventoryWithOverrides(ignored, names) {
     if (!root.inventoryReady || root.inventoryLoading) return
-    if (!(root.nodes instanceof Array) || root.nodes.length === 0) return
-    var payload = root.inventoryWritePayload(root.nodes, root.invSettings)
-    payload.ignored = ignored || []
-    payload.names = names || []
-    root.runInventoryWrite(payload)
+    root.runInventoryWrite({
+      schemaVersion: 2,
+      settings: root.invSettings && typeof root.invSettings === "object" ? root.invSettings : {},
+      ignored: ignored || [],
+      names: names || []
+    })
   }
 
   // Adopting an arrival puts it in the inventory, which is also what stops it
@@ -2164,6 +2187,7 @@ Panel {
   }
 
   function addDiscovered(c) {
+    if (c) c.addedByHand = true
     if (root.inventoryHasDevice(c)) {
       root.inventoryError = "Already in your inventory"
       return
@@ -2175,7 +2199,39 @@ Panel {
     }
     var next = root.nodes.slice()
     next.push(node)
+
+    // Take it out of the "things you could add" list straight away. The
+    // collector filters it out on the next pass, but that is a probe away and
+    // until then the row you just added is still sitting there to be added
+    // again.
+    root.forgetCandidateLocally(c)
+    root.forgetRowLocally(c.mac, c.ip)
+
+    // And go and look at it. Adding a box is a request to see it on the map.
+    root.returnToMap()
     root.writeNodes(next)
+  }
+
+  function forgetCandidateLocally(c) {
+    if (!c || !(root.discover instanceof Array)) return
+    var mac = String(c.mac || "").toLowerCase()
+    var ip = String(c.ip || "")
+    var out = []
+    for (var i = 0; i < root.discover.length; i++) {
+      var d = root.discover[i]
+      if (mac && String(d.mac || "").toLowerCase() === mac) continue
+      if (!mac && ip && String(d.ip || "") === ip) continue
+      out.push(d)
+    }
+    root.discover = out
+  }
+
+  function returnToMap() {
+    root.view = "glance"
+    root.glanceTab = "map"
+    root.formConfirmDelete = false
+    root.formFieldFocused = false
+    root.cancelInlineEdit()
   }
 
   function writeNodes(nextNodes) {
@@ -2197,6 +2253,9 @@ Panel {
       // A right-click on the bar icon asks for a specific view; otherwise the
       // panel always opens on the glance.
       root.view = root.pendingView !== "" ? root.pendingView : "glance"
+      // The map is the thing. Opening onto whichever tab happened to be left
+      // selected three sessions ago is not a preference, it is a leftover.
+      if (root.pendingView === "") root.glanceTab = "map"
       root.pendingView = ""
       root.mapSelectedId = ""
       root.ensureDaemon()
@@ -2384,6 +2443,8 @@ Panel {
       // Send whatever was clicked while this write was in flight, before
       // reloading, or the reload would overwrite the newer intent.
       if (root.drainPendingWrite()) return
+      // Editing a node returns to the list it was edited from. Everything else
+      // has already navigated itself and must not be yanked elsewhere.
       if (root.view === "form") root.view = "setup"
       root.formConfirmDelete = false
       root.formFieldFocused = false
