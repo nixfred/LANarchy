@@ -87,7 +87,10 @@ def test_inventory_role_router_wins() -> None:
 def test_no_evidence_is_unknown_not_a_guess() -> None:
     got = identify()
     assert got["family"] == "unknown"
-    assert got["label"] == "MACHINE"
+    # No label at all, not the word "MACHINE". A card of machines gains nothing
+    # from being told each one is a machine, and an empty label lets the panel
+    # fall back to something real, like how the box is connected.
+    assert got["label"] == ""
     assert got["confidence"] == "unknown"
     assert got["source"] == "none"
 

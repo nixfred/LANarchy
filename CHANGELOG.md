@@ -3,6 +3,27 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.18.1 - 2026-09-17
+
+- **One flapping device no longer fills "what just changed".** A sleeping phone
+  transitions every few minutes, so the newest-first strip was six rows of the
+  same phone and every other change on the network was pushed out of view. Each
+  node gets one row now, its latest change, with a `×n` count so "flipped
+  forty times" is still visible in the row it earned
+- **Deleted devices stop reporting.** The history ring keeps 24 hours, so it
+  outlives a node: a device removed from the inventory still appeared in the
+  strip under its raw id, as a bare UUID, with nothing left to give it a name.
+  Status changes and flap counts now cover only what the panel is actually showing
+- **Every unstable host is named**, not just the worst one. It said
+  "unstable: <one host>" while others flapped just as hard, unmentioned
+- **"MACHINE" is gone from the card header.** A card of machines gains nothing
+  from being told each one is a machine. An unknown OS says nothing and the row
+  falls back to how the box is connected
+- **Fixed: the map relayed out twice on every resize.** `mapArea` recalculated
+  the layout when its height changed, but that height is an *output* of the
+  layout, so the layout was fed its own result, costing a second full pass and a
+  repaint each time the topology grew a row
+
 ## 0.18.0 - 2026-09-17
 
 - **The map uses its whole width.** The layout reserved a 23% band for the

@@ -642,6 +642,17 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
     for row in machines + host_rows + proxies:
         by_id[str(row.get("id") or "")] = row
     quiet_lan, quiet_proxies = leftover_rows(nodes, by_id, dash["grouped_ids"])
+    # Only report status changes for things that are still here. The history
+    # ring keeps 24 hours, so a deleted node kept appearing in "what just
+    # changed" under its raw id, with nothing left to give it a name.
+    live_ids = {k for k in by_id if k}
+    live_ids |= {str(g.get("id") or "") for g in dash.get("services") or []}
+    for group in (auto_rows, device_rows, quiet_lan, quiet_proxies):
+        live_ids |= {str(r.get("id") or "") for r in group or [] if isinstance(r, dict)}
+    for extra in (gateway, wan):
+        if isinstance(extra, dict) and extra.get("id"):
+            live_ids.add(str(extra["id"]))
+    live_ids.discard("")
     payload = {
         "as_of": now_iso(),
         "machines": machines,
@@ -665,8 +676,8 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         ),
         "new_devices": arrivals_now,
         "new_devices_announce": announced_now,
-        "events": recent_events(hist, 6),
-        "flaps": flap_counts(hist, 1.0),
+        "events": recent_events(hist, 6, known=live_ids),
+        "flaps": flap_counts(hist, 1.0, known=live_ids),
     }
     ts = payload["as_of"]
     for row in machines:

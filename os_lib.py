@@ -49,7 +49,9 @@ FAMILY_LABELS = {
     "apple": "APPLE",
     "appliance": "APPLIANCE",
     "router": "ROUTER",
-    "unknown": "MACHINE",
+    # Deliberately empty: "MACHINE" on a card of machines is not a fact, and
+    # the panel shows the link kind instead when the OS is unknown.
+    "unknown": "",
 }
 
 

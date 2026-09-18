@@ -1057,8 +1057,6 @@ Panel {
     return out
   }
 
-  // "MACHINE" on every card says nothing. Say what the box actually runs, and
-  // mark a guess as a guess: a TTL of 64 cannot tell Linux from macOS.
   function agoText(iso) {
     var then = Date.parse(String(iso || ""))
     if (!isFinite(then)) return ""
@@ -1091,10 +1089,15 @@ Panel {
   }
 
   function osSubline(row) {
+    // "MACHINE" on a card of machines says nothing, so an unknown OS now says
+    // nothing either and the row falls back to how the box is connected. A
+    // header is for facts; padding the slot with the word for "thing" is worse
+    // than leaving it empty.
     var os = row && row.os ? row.os : null
-    var label = os ? String(os.label || "machine") : "machine"
-    if (os && String(os.confidence || "") === "guess") label += "?"
+    var label = os ? String(os.label || "") : ""
+    if (label && os && String(os.confidence || "") === "guess") label += "?"
     var link = root.linkKindText(row)
+    if (!label) return link || ""
     return link ? (label + " · " + link) : label
   }
 
@@ -3667,8 +3670,11 @@ Panel {
             color: Color.popups.background
             border.width: 1
             border.color: Qt.alpha(Color.accent, 0.35)
+            // Width only. The layout reads mapArea.width and *writes*
+            // mapContentHeight, which drives this height, so recalculating on a
+            // height change fed the layout its own output and forced a second
+            // full pass and repaint every time the topology grew a row.
             onWidthChanged: root.recalcMapLayout()
-            onHeightChanged: root.recalcMapLayout()
             clip: true
 
             // No vertical divider and no zone captions. The chain reads
@@ -3995,9 +4001,16 @@ Panel {
                       // `visible` does not stop a binding being evaluated, so an
                       // empty list must be handled here, not upstream.
                       if (root.flapping.length === 0) return ""
-                      var f = root.flapping[0]
-                      return "unstable: " + root.nodeLabelById(f.id)
-                          + " flapped " + f.count + "x in the last hour"
+                      // Name every unstable box, not just the worst one. It
+                      // said "unstable: <one host>" while three others were
+                      // flapping just as hard and went unmentioned.
+                      var parts = []
+                      for (var i = 0; i < Math.min(3, root.flapping.length); i++)
+                        parts.push(root.nodeLabelById(root.flapping[i].id)
+                            + " " + root.flapping[i].count + "x")
+                      var more = root.flapping.length - parts.length
+                      return "unstable in the last hour: " + parts.join(" \u00b7 ")
+                          + (more > 0 ? " \u00b7 +" + more + " more" : "")
                     }
                     color: root.themeYellow
                     font.family: root.fontFamily
@@ -4042,6 +4055,15 @@ Panel {
                     Text {
                       text: String(eventRow.modelData.from) + " → " + String(eventRow.modelData.to)
                       color: root.muted
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                    // One row per node now, so the row has to say how many
+                    // times that node flipped or the collapsing loses the fact.
+                    Text {
+                      visible: Number(eventRow.modelData.changes || 1) > 1
+                      text: "×" + Number(eventRow.modelData.changes || 1)
+                      color: root.themeYellow
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
                     }
