@@ -172,8 +172,6 @@ The panel **starts** the daemon on open (idempotent via flock) and **only reads*
 The loop ticks every 2s but only probes when the gate allows it, so opening the
 panel takes effect at once instead of waiting out a long backoff:
 
-| Condition | Result |
-|-----------|--------|
 | Condition | Probe | Discover |
 |-----------|-------|----------|
 | Panel open, on the home network | `probeIntervalSec` | yes |
