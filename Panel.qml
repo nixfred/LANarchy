@@ -36,6 +36,16 @@ Panel {
     var cut = u.lastIndexOf("/")
     return cut >= 0 ? u.substring(0, cut) : u
   }
+  // Runtime state lives OUTSIDE the plugin tree. The shell watches a local
+  // plugin directory and hot-reloads on any change, so writing the snapshot and
+  // a heartbeat in there reloaded the plugin roughly once a second. Must match
+  // plugin_paths.state_dir().
+  readonly property string stateDir: {
+    var xdg = String(Quickshell.env("XDG_STATE_HOME") || "")
+    var base = xdg !== "" ? xdg : (String(Quickshell.env("HOME") || "") + "/.local/state")
+    return base + "/lanarchy"
+  }
+
   readonly property int refreshIntervalSec: {
     var n = parseInt(String(setting("refreshIntervalSec", 15)), 10)
     if (!isFinite(n)) n = 15
@@ -1946,7 +1956,7 @@ Panel {
 
   FileView {
     id: snapshotView
-    path: root.pluginDir + "/snapshot.json"
+    path: root.stateDir + "/snapshot.json"
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -2027,7 +2037,7 @@ Panel {
     triggeredOnStart: true
     onTriggered: {
       if (heartbeatProc.running) return
-      heartbeatProc.command = ["touch", root.pluginDir + "/.panel-heartbeat"]
+      heartbeatProc.command = ["touch", root.stateDir + "/.panel-heartbeat"]
       heartbeatProc.running = true
     }
   }

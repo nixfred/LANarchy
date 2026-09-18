@@ -77,7 +77,11 @@ with tempfile.TemporaryDirectory() as td:
     tmp = Path(td)
     shutil.copy("inventory.default.json", tmp / "inventory.default.json")
     original = plugin_paths.plugin_config_dir
+    original_state = plugin_paths.state_dir
     plugin_paths.plugin_config_dir = lambda: tmp
+    # state_dir must be redirected too, or this test writes its fixture over the
+    # user's real inventory.
+    plugin_paths.state_dir = lambda: tmp
     try:
         live = plugin_paths.ensure_user_inventory()
         assert live.is_file(), "first run must seed inventory.json"
@@ -87,8 +91,32 @@ with tempfile.TemporaryDirectory() as td:
         assert json.loads(live.read_text())["nodes"][0]["id"] == "mine", "must never re-seed over user state"
     finally:
         plugin_paths.plugin_config_dir = original
+        plugin_paths.state_dir = original_state
 print("seed ok")
 PY_SEED
+
+echo "== no runtime state is written into the plugin tree"
+python3 - <<'PY_STATE'
+import plugin_paths
+from pathlib import Path
+
+plugin = plugin_paths.plugin_config_dir()
+state = plugin_paths.state_dir()
+assert state != plugin, "state dir must not be the plugin dir"
+for fn in (plugin_paths.inventory_path, plugin_paths.history_path,
+           plugin_paths.notify_state_path, plugin_paths.snapshot_path,
+           plugin_paths.unifi_secrets_path, plugin_paths.panel_heartbeat_path):
+    p = fn()
+    assert plugin not in p.parents, f"{p} is inside the watched plugin tree"
+# the shell hot-reloads a local plugin on ANY change under it, so a write here
+# reloads the plugin roughly once a second while the panel is open
+leftovers = [n for n in ("inventory.json", "snapshot.json", "history.json",
+                         "notify-state.json", ".panel-heartbeat",
+                         ".daemon.lock", ".probe.lock")
+             if (plugin / n).exists()]
+assert not leftovers, f"still writing into the plugin tree: {leftovers}"
+print("state is outside the plugin tree")
+PY_STATE
 
 echo "== required marketplace files"
 for f in manifest.json LICENSE README.md preview.png Panel.qml; do

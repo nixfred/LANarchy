@@ -13,7 +13,12 @@ import time
 
 import gate_lib
 from inventory_lib import load_inventory
-from plugin_paths import ensure_user_inventory, inventory_path, plugin_config_dir
+from plugin_paths import (
+    ensure_user_inventory,
+    inventory_path,
+    migrate_state_out_of_plugin_dir,
+    state_dir,
+)
 from probe import run_probe
 
 DEFAULT_INTERVAL_S = gate_lib.DEFAULT_INTERVAL_S
@@ -30,8 +35,9 @@ def inventory_settings() -> dict:
 
 
 def loop() -> int:
+    migrate_state_out_of_plugin_dir()
     ensure_user_inventory()
-    lock_path = plugin_config_dir() / ".daemon.lock"
+    lock_path = state_dir() / ".daemon.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("w") as fh:
         try:

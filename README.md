@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.8.2-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.0-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -78,7 +78,7 @@ omarchy-shell shell summon donnie.homelab-mesh
 ### Optional UniFi
 
 ```bash
-cp unifi-secrets.json.example ~/.config/omarchy/plugins/donnie.homelab-mesh/unifi-secrets.json
+cp unifi-secrets.json.example ~/.local/state/lanarchy/unifi-secrets.json
 # UNIFI_KEY=...   or JSON {"apiKey":"..."}
 ```
 
@@ -205,7 +205,7 @@ Bar widget setting (also in `shell.json` under the widget entry):
 |-----|---------|-------|
 | `refreshIntervalSec` | `15` | 5–120 |
 
-Inventory and sidecars live in the plugin install directory (`~/.config/omarchy/plugins/donnie.homelab-mesh/` after `plugin add`):
+Inventory and sidecars live in `~/.local/state/lanarchy/` (`$XDG_STATE_HOME/lanarchy`). They are deliberately **not** in the plugin directory: the shell hot-reloads a local plugin whenever its tree changes, so writing state there restarts the plugin roughly once a second.
 
 | File | Purpose |
 |------|---------|

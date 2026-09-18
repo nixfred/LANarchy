@@ -3,6 +3,20 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.9.0 - 2026-09-17
+
+- **Runtime state no longer lives in the plugin directory.** The shell watches a
+  local plugin tree and hot-reloads the plugin whenever anything under it
+  changes, so writing `snapshot.json` every probe (and a panel heartbeat every 8
+  seconds) reloaded the plugin about once a second: measured at **296 reloads in
+  five minutes**, which makes the panel flicker and restart while you are using
+  it. Everything writable now lives in `$XDG_STATE_HOME/lanarchy`
+  (`~/.local/state/lanarchy`), and existing files are migrated there once,
+  without overwriting
+- `smoke.sh` now asserts that no writable path resolves inside the plugin tree,
+  so this cannot regress
+- **Breaking:** `unifi-secrets.json` moves to `~/.local/state/lanarchy/`
+
 ## 0.8.2 - 2026-09-17
 
 - **Plugin IPC works again.** The handler claimed the plugin id as its target, but
