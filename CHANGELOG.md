@@ -3,6 +3,29 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.21.0 - 2026-09-18
+
+- **Notifications off means it is not an alarm.** Silencing a host still counted
+  it as down, so it kept the bar icon red and the header on "1 DOWN" for a
+  machine you had deliberately muted, which is the one state muting exists to
+  remove. A muted host that is not up counts as `muted` instead: still in the
+  total, still red on its own card, and shown as "n muted" in the header, but no
+  longer an alarm. One change covers the icon colour, the bar readout, the
+  tooltip and the alarm state, because all four read the same count
+- **Remove is on the card's own action row.** Getting a box off the map meant
+  Setup, find it in the list, open it, Delete, Confirm delete; and for a
+  discovered box there was no path at all. Selecting a card now offers Remove
+  next to Rename and Hide. It asks once before acting, and moving to another
+  card cancels a half-pressed Remove. A curated node stops existing; a
+  discovered one goes on the ignored list so discovery stops re-adding it
+- **Fixed: "Move to LAN" did nothing on a discovered card.** It only rewrote
+  inventory nodes, so for a discovered box it matched nothing, wrote the same
+  list back, and then jumped to the List tab, which made it look as though
+  something had happened. Hiding a discovered card now tells discovery to stop
+  offering it
+- **"Move to LAN" is now "Hide".** It named the LAN bucket card, which was
+  removed in 0.17.0, so the label pointed at a place the user could no longer see
+
 ## 0.20.0 - 2026-09-18
 
 - **Discovered machines report their traffic.** A discovered host was pinged and

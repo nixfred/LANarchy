@@ -65,6 +65,9 @@ Panel {
   property var mapEdges: []
   property var mapLayout: []
   property string mapSelectedId: ""
+  // Moving to another card cancels a half-pressed Remove, so coming back to a
+  // card never finds it still armed from a click you had forgotten about.
+  onMapSelectedIdChanged: root.removeArmedId = ""
   property real edgePhase: 0
   property bool mapAnimate: true
   property bool loading: false
@@ -892,6 +895,20 @@ Panel {
     if (!id || id === "__lan__") return
     var ids = root.groupMemberIds(id)
     if (!ids.length) ids = [id]
+
+    // A discovered card has no inventory node to flag, so the loop below
+    // matched nothing and wrote the same list straight back: the button did
+    // nothing at all, then jumped to the List tab, which made it look as though
+    // it had. Hiding one means telling discovery to stop offering it.
+    if (!root.invNodeById(id) && !root.mapHiddenForId(id)) {
+      var drow = root.glanceRowById(id)
+      if (drow && (drow.mac || drow.ip)) {
+        root.ignoreDevice(drow)
+        if (root.mapSelectedId === id) root.mapSelectedId = ""
+        return
+      }
+    }
+
     var hide = !root.mapHiddenForId(id)
     var next = []
     var i, node, nid, hit
@@ -1895,6 +1912,43 @@ Panel {
     writeNodes(next)
   }
 
+  // Remove whatever card you are looking at, whichever kind it is. Getting a
+  // box off the map used to mean Setup, find it in the list, open it, Delete,
+  // Confirm delete; and that path did not exist at all for a discovered box,
+  // which had to be hunted down in the Devices drawer instead.
+  //
+  // The two kinds are genuinely different and both are handled here so the
+  // caller does not have to know which it has: a curated node stops existing,
+  // a discovered one goes on the ignored list so discovery stops re-adding it
+  // on the next sweep. Restoring either is `lanarchy restore <mac>` or the
+  // ignored list in Setup.
+  // Which card has had Remove pressed once. Removing is destructive, so it asks
+  // again; tracking the id rather than a flag means selecting a different card
+  // disarms it instead of arming the new one.
+  property string removeArmedId: ""
+
+  function removeCardById(sid) {
+    var id = String(sid || "")
+    if (!id || id === "__lan__" || id === "__gateway__" || id === "__wan__") return false
+
+    var inv = root.invNodeById(id)
+    if (inv) {
+      var next = []
+      for (var i = 0; i < root.nodes.length; i++)
+        if (String(root.nodes[i].id) !== id) next.push(root.nodes[i])
+      root.writeNodes(next)
+      if (root.mapSelectedId === id) root.mapSelectedId = ""
+      return true
+    }
+
+    // Discovered: needs the row, because the ignored list is keyed by hardware.
+    var row = root.glanceRowById(id)
+    if (!row || (!row.mac && !row.ip)) return false
+    root.ignoreDevice(row)
+    if (root.mapSelectedId === id) root.mapSelectedId = ""
+    return true
+  }
+
   function cleanDiscoverLabel(raw) {
     var s = String(raw || "").trim()
     s = s.replace(/\s+[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){1,5}\s*$/i, "").trim()
@@ -2747,6 +2801,7 @@ Panel {
     signal activated()
     signal notifyClicked()
 
+
     width: Style.space(108)
     height: root.mapCardH
     radius: Style.space(14)
@@ -3069,7 +3124,7 @@ Panel {
   // arrays, so the bar could show a green tick while the Internet card was red.
   readonly property var labHealth: {
     var seen = ({})
-    var counts = { up: 0, degraded: 0, down: 0, unknown: 0, total: 0 }
+    var counts = { up: 0, degraded: 0, down: 0, unknown: 0, muted: 0, total: 0 }
 
     function take(row) {
       if (!row) return
@@ -3079,6 +3134,17 @@ Panel {
       if (!id || seen[id]) return
       seen[id] = true
       var st = String(row.status || "unknown")
+      // Turning notifications off for a box is a statement that you do not want
+      // to hear about it. It was still counted as down, so it kept the bar icon
+      // red and the header on "1 DOWN" for a machine you had deliberately
+      // silenced, which is the one state muting is supposed to remove. It
+      // counts as muted instead: still in the total, still red on its own card,
+      // just no longer an alarm.
+      if (st !== "up" && !root.notifyEnabledForNodeId(id)) {
+        counts.muted++
+        counts.total++
+        return
+      }
       if (st === "up") counts.up++
       else if (st === "degraded") counts.degraded++
       else if (st === "down") counts.down++
@@ -3263,6 +3329,10 @@ Panel {
       if (h.degraded) parts.push(h.degraded + " degraded")
       if (h.unknown) parts.push(h.unknown + " unknown")
       if (!parts.length) parts.push("all up")
+      // Excluded from the alarm, not hidden. A silenced box that is genuinely
+      // off should still be findable here rather than disappearing from the
+      // count entirely.
+      if (h.muted) parts.push(h.muted + " muted")
       if (root.snapshotStale()) parts.push("STALE")
       return parts.join(" · ") + " · " + h.total + " tracked · " + root.asOf
     }
@@ -4169,9 +4239,29 @@ Panel {
                   onTapped: root.toggleNotifyForNodeId(root.mapSelectedId)
                 }
                 SegBtn {
-                  label: root.mapHiddenForId(root.mapSelectedId) ? "Show on map" : "Move to LAN"
+                  // Was "Move to LAN", which named the LAN bucket card. That
+                  // card was removed, so the label pointed at a place the user
+                  // could no longer see.
+                  label: root.mapHiddenForId(root.mapSelectedId) ? "Show on map" : "Hide"
                   active: root.mapHiddenForId(root.mapSelectedId)
                   onTapped: root.toggleMapHidden(root.mapSelectedId)
+                }
+                SegBtn {
+                  // Removal, in the row where every other action on a card
+                  // already lives. It used to mean Setup, find it in the list,
+                  // open it, Delete, Confirm delete, and for a discovered box
+                  // there was no path at all.
+                  label: root.removeArmedId === root.mapSelectedId
+                      ? "Remove — confirm" : "Remove"
+                  active: root.removeArmedId === root.mapSelectedId
+                  onTapped: {
+                    if (root.removeArmedId !== root.mapSelectedId) {
+                      root.removeArmedId = root.mapSelectedId
+                      return
+                    }
+                    root.removeArmedId = ""
+                    root.removeCardById(root.mapSelectedId)
+                  }
                 }
                 SegBtn {
                   label: "Edit in Setup"
