@@ -4716,7 +4716,7 @@ Panel {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             text: root.glanceTab === "map"
-                ? "Arrows select · Enter mutes · h moves to LAN · a toggles Flow · m list"
+                ? "Arrows select · Enter mutes · h hides · a toggles Flow · m list"
                 : "LAN bucket = leftovers + demoted · Show restores · m map · r refresh"
             color: root.muted
             font.family: root.fontFamily

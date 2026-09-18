@@ -3,6 +3,12 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.21.1 - 2026-09-18
+
+- The keyboard hint still read "h moves to LAN" after the action itself was
+  renamed to Hide in 0.21.0, so the footer named a destination that no longer
+  exists while the button beside it did not
+
 ## 0.21.0 - 2026-09-18
 
 - **Notifications off means it is not an alarm.** Silencing a host still counted
