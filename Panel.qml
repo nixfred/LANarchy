@@ -392,10 +392,8 @@ Panel {
     if (root.lanBucketRows().length)
       edges.push({ from: anchor, to: "__lan__", kind: "lan" })
 
-    // The internet, beyond the gateway. This is topology only: host counters
-    // include LAN traffic and cannot measure this link.
-    if (gw && root.wan)
-      edges.push({ from: gw, to: "__wan__", kind: "wan" })
+    // No edge to the internet: it is not a placed node. The arrow off the
+    // gateway card says the same thing without spending a card's worth of space.
 
     root.mapEdges = edges
   }
@@ -438,6 +436,12 @@ Panel {
   // directly below it once the band wraps to a second row.
   property var mapColumnGaps: []
   property real mapEgressY: 0
+  // The gateway's placed geometry, so the internet arrow can hang off it.
+  readonly property var gatewayBox: {
+    for (var i = 0; i < root.mapLayout.length; i++)
+      if (String(root.mapLayout[i].id) === "__gateway__") return root.mapLayout[i]
+    return null
+  }
   // Same height as a machine card. The gateway and the internet are two more
   // nodes in the chain, not a special exhibit that needs its own proportions.
   readonly property real mapEgressH: root.mapCardH
@@ -1285,18 +1289,14 @@ Panel {
       cursorY += clusterH
     }
 
-    if (root.wan) {
-      var wanW = rightW - Style.space(64)
-      place(root.wan, "internet", w - wanW - Style.space(12), root.mapEgressY,
-            wanW, root.mapEgressH, "cloud",
-            root.wanMetric(), [])
-    }
+    // The internet is not a box on your network and does not get a card. It is
+    // an arrow leaving the gateway, drawn in the margin, costing no layout.
 
     if (externals.length) {
       var railX = barX + barW
       var cw = Math.min(Style.space(120), Math.max(Style.space(96), rightW - Style.space(16)))
       var gapY = Style.space(10)
-      var startY = root.wan ? root.mapEgressY + root.mapEgressH + Style.space(28) : Style.space(36)
+      var startY = Style.space(36)
       var i, row, y
       for (i = 0; i < externals.length; i++) {
         row = externals[i]
@@ -2689,7 +2689,7 @@ Panel {
     property bool selected: false
     property bool notifyOn: true
     readonly property bool isLan: nodeId === "__lan__"
-    readonly property bool isEgress: nodeId === "__gateway__" || nodeId === "__wan__"
+    readonly property bool isEgress: nodeId === "__gateway__"
     signal activated()
     signal notifyClicked()
 
@@ -3787,6 +3787,84 @@ Panel {
                       }
                     }
                   }
+                }
+              }
+            }
+
+            // The internet, as an arrow out of the gateway. No card, no column,
+            // no reserved space: it sits in the margin the gateway card already
+            // leaves, and states only what is known.
+            Item {
+              id: internetExit
+              visible: root.wan !== null && root.gatewayBox !== null
+              z: 2
+              x: root.gatewayBox ? root.gatewayBox.x + root.gatewayBox.w : 0
+              y: root.gatewayBox ? root.gatewayBox.y : 0
+              width: Math.max(Style.space(10), mapArea.width - x - Style.space(6))
+              height: root.gatewayBox ? root.gatewayBox.h : 0
+
+              readonly property color tint: root.wan && String(root.wan.status) === "up"
+                  ? root.themeGreen : root.urgent
+
+              // The label decides where the arrow stops, or the head draws on
+              // top of the text.
+              readonly property real labelW: Math.max(exitLabel.implicitWidth,
+                                                      exitMetric.implicitWidth)
+              readonly property real headX:
+                Math.max(Style.space(10), width - labelW - Style.space(16))
+
+              // shaft
+              Rectangle {
+                x: 0
+                y: parent.height / 2 - height / 2
+                width: Math.max(Style.space(8), internetExit.headX)
+                height: 2
+                color: Qt.alpha(internetExit.tint, 0.55)
+                antialiasing: true
+              }
+              // head
+              Canvas {
+                id: arrowHead
+                width: Style.space(10)
+                height: Style.space(10)
+                x: internetExit.headX
+                y: parent.height / 2 - height / 2
+                onPaint: {
+                  var c = getContext("2d")
+                  c.clearRect(0, 0, width, height)
+                  c.fillStyle = internetExit.tint
+                  c.beginPath()
+                  c.moveTo(0, 0)
+                  c.lineTo(width, height / 2)
+                  c.lineTo(0, height)
+                  c.closePath()
+                  c.fill()
+                }
+                Connections {
+                  target: internetExit
+                  function onTintChanged() { arrowHead.requestPaint() }
+                }
+              }
+              Column {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 1
+                Text {
+                  id: exitLabel
+                  text: "INTERNET"
+                  color: internetExit.tint
+                  font.family: root.fontFamily
+                  font.pixelSize: 9
+                  font.bold: true
+                  font.letterSpacing: 1.1
+                }
+                Text {
+                  id: exitMetric
+                  visible: text !== ""
+                  text: root.wanMetric()
+                  color: root.muted
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
                 }
               }
             }

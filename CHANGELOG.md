@@ -3,6 +3,18 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.16.1 - 2026-09-17
+
+- **The internet is an arrow, not a card.** It is not a box on your network and
+  it was spending a card's worth of the map to say so. It is now an arrow out of
+  the gateway with `INTERNET` and the latency and public IP set in the margin the
+  gateway card already leaves, costing no layout at all
+- **Fixed: the router appeared twice**, once as the default gateway and again as a
+  machine card. A router commonly answers on more than one address (a LAN address
+  plus a management or VLAN one), and discovery read the second as an unrelated
+  client. Anything sharing the gateway's MAC or address is never offered as a
+  client, and the same applies to whatever the controller reports as the gateway
+
 ## 0.16.0 - 2026-09-17
 
 - **A device you add by hand gets its own card.** Adding `Spike-iPhone` classed it

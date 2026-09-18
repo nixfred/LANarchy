@@ -488,6 +488,21 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             monitored["measured"] = True
         wan["monitored_hosts"] = monitored
 
+    # The gateway has its own node, so it must never also be a client card. A
+    # router commonly answers on more than one address (a LAN address plus a
+    # management or VLAN one) and discovery reads the extra as an unrelated
+    # device, which is how the same box appeared twice.
+    gateway_keys: set[str] = set()
+    gateway_ips: set[str] = set()
+    if gateway:
+        if gateway.get("mac"):
+            gateway_keys.add("mac:" + str(gateway["mac"]).lower())
+        if gateway.get("ip"):
+            gateway_ips.add(str(gateway["ip"]))
+    for dev in unifi.get("devices") or []:
+        if str(dev.get("kind") or "") == "gateway" and dev.get("mac"):
+            gateway_keys.add("mac:" + str(dev["mac"]).lower())
+
     # The network populates the view; the inventory only records your overrides.
     # A discovered box you have not curated still shows up, and a device you
     # dismissed stays dismissed because the dismissal is keyed by hardware.
@@ -522,6 +537,9 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
     for cand in candidates:
         key = ignore_key(cand.get("mac"), cand.get("ip"))
         if key and key in dismissed:
+            continue
+        # Never a client card for the box that IS the gateway.
+        if (key and key in gateway_keys) or str(cand.get("ip") or "") in gateway_ips:
             continue
         row = {
             "id": "auto:" + (key or str(cand.get("ip") or cand.get("label") or "")),
@@ -568,6 +586,12 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
     save_ledger(ledger)
 
     acknowledged = set(dismissed)
+    # The gateway has its own node. A router commonly answers on more than one
+    # address (a LAN address and a management or VLAN address), and discovery
+    # sees the extra one as an unrelated client, so the same box appeared both as
+    # the default gateway and as a machine card.
+    acknowledged |= gateway_keys
+
     # This machine is not a stranger on its own network. A laptop has a MAC per
     # interface, so without this it announces itself every time it switches
     # between wifi and ethernet.
@@ -584,6 +608,7 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             r for r in rows
             if ("mac:" + str(r.get("mac") or "")) not in acknowledged
             and str(r.get("ip") or "") not in mine
+            and str(r.get("ip") or "") not in gateway_ips
         ]
 
     # Two different lists, which is where this went wrong: the tray is everything
