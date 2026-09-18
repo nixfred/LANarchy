@@ -3,6 +3,23 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.17.0 - 2026-09-17
+
+- **The LAN bucket is gone.** It aggregated leftover `host` rows and LAN metrics
+  into a card on the topology that was neither a device nor a link. The Devices
+  drawer already aggregates, as a list you can act on, and the metrics it carried
+  (dns time, neighbour count) are real, so they moved to the footer with the
+  other measurements
+- **Fixed: the router still had its own card** when it was in the inventory. The
+  previous fix only excluded *discovered* candidates, so a curated router drew a
+  machine card beside the gateway card representing the same hardware. An
+  inventory node matching the gateway is now absorbed into it, keeping the name
+  the user gave it
+- **The map uses the space it has.** Cards widen to fill their row instead of
+  staying at a fixed width and leaving a third of the map blank, and the map asks
+  for exactly the height its content needs. The old floor was reserving room for
+  the bucket that no longer exists, which is where the dead area came from
+
 ## 0.16.1 - 2026-09-17
 
 - **The internet is an arrow, not a card.** It is not a box on your network and

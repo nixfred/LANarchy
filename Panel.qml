@@ -389,8 +389,6 @@ Panel {
       edges.push({ from: hub || anchor, to: gid, kind: external ? "wan" : "service" })
     }
 
-    if (root.lanBucketRows().length)
-      edges.push({ from: anchor, to: "__lan__", kind: "lan" })
 
     // No edge to the internet: it is not a placed node. The arrow off the
     // gateway card says the same thing without spending a card's worth of space.
@@ -1132,6 +1130,19 @@ Panel {
   // What the monitored hosts are pushing. Deliberately NOT called WAN: it counts
   // traffic that never leaves the LAN and misses every host without telemetry.
   // Nothing here can read the gateway's WAN interface.
+  // The LAN measurements the bucket used to carry. Real numbers, shown with the
+  // other real numbers instead of inside a pretend map node.
+  function lanMetricsText() {
+    var m = root.lanMeta
+    if (!m || typeof m !== "object") return ""
+    var parts = []
+    var dns = Number(m.dns_ms)
+    if (isFinite(dns)) parts.push("dns " + Math.round(dns) + "ms")
+    var n = Number(m.neighbors)
+    if (isFinite(n) && n > 0) parts.push(n + " neighbours")
+    return parts.join(" · ")
+  }
+
   function monitoredHostsText() {
     var m = root.wan && root.wan.monitored_hosts ? root.wan.monitored_hosts : null
     if (!m || !m.measured) return ""
@@ -1155,7 +1166,10 @@ Panel {
     if (!mapArea || mapArea.width <= 0) return
     var w = mapArea.width
     var layout = []
-    var cardW = Style.space(108)
+    // Cards fill the row they are given. A fixed 108 left a third of the map
+    // empty with seven machines on a 1920 screen, and the grid hugged the
+    // top-left corner of a mostly blank area.
+    var cardW = Style.space(150)
     var cardH = root.mapCardH
     var externals = root.externalGroups()
     var router = root.routerMachine()
@@ -1206,6 +1220,8 @@ Panel {
       var rowsUsed = Math.ceil(n / perRow)
       // Spread the cards evenly rather than leaving a ragged last row.
       var columns = Math.max(1, Math.ceil(n / rowsUsed))
+      // Widen to consume the row, up to a readable maximum, then centre what is
+      // left over. Cards used to stay narrow and leave the remainder blank.
       var cw = Math.max(minW, Math.min(cardW, (colW - gapX * (columns - 1)) / columns))
       var spanW = cw * columns + gapX * (columns - 1)
       var startX = colX + Math.max(0, (colW - spanW) / 2)
@@ -1280,14 +1296,10 @@ Panel {
                         root.serviceLights, 0, leftW) + Style.space(26)
     }
 
-    if (root.lanBucketRows().length && root.mapRowVisible(root.lanClusterRow(), "lan")) {
-      var cluster = root.lanClusterRow()
-      var clusterW = Math.min(Style.space(280), leftW - Style.space(20))
-      var clusterH = Style.space(72)
-      place(cluster, "LAN bucket", (leftW - clusterW) / 2, cursorY,
-            clusterW, clusterH, "lan", cluster.metric, cluster.lights)
-      cursorY += clusterH
-    }
+    // No LAN bucket card. It aggregated leftover `host` rows and LAN metrics
+    // into a fake node on the topology, which is neither a device nor a link.
+    // The Devices drawer does the aggregation as a list you can act on, and the
+    // LAN metrics belong in the footer with the other measurements.
 
     // The internet is not a box on your network and does not get a card. It is
     // an arrow leaving the gateway, drawn in the margin, costing no layout.
@@ -1310,7 +1322,10 @@ Panel {
     var lowest = 0
     for (var li = 0; li < layout.length; li++)
       lowest = Math.max(lowest, layout[li].y + layout[li].h)
-    root.mapContentHeight = Math.max(Style.space(300), lowest + Style.space(24))
+    // Exactly what the content needs. The old 300 floor was reserving room for
+    // a LAN bucket that no longer exists, which is where the dead space came
+    // from.
+    root.mapContentHeight = lowest + Style.space(20)
 
     root.mapLayout = layout
     if (edgeCanvas) edgeCanvas.requestPaint()
@@ -3619,7 +3634,7 @@ Panel {
             id: mapArea
             width: parent.width
             // Grow to whatever the topology needs; the popup grows with it.
-            height: Math.max(Style.space(300), root.mapContentHeight)
+            height: Math.max(Style.space(140), root.mapContentHeight)
             visible: root.glanceTab === "map"
             radius: Style.space(14)
             color: Color.popups.background
@@ -3932,6 +3947,13 @@ Panel {
                     font.pixelSize: Style.font.caption
                     font.bold: true
                     font.letterSpacing: 1.2
+                  }
+                  Text {
+                    visible: root.lanMetricsText() !== ""
+                    text: root.lanMetricsText()
+                    color: root.muted
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
                   }
                   Text {
                     visible: root.monitoredHostsText() !== ""
