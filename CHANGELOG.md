@@ -3,6 +3,19 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.11.0 - 2026-09-17
+
+- **The running version is on screen.** `LANARCHY v0.11.0` in the panel header,
+  on the bar tooltip, and as `omarchy-shell lanarchy version`. It is read from
+  `manifest.json` at runtime, so the number shown is necessarily the one that
+  shipped
+- **Rename from the card.** Double-click a name on the map to edit it in place:
+  Enter commits, Escape cancels. It writes through the same MAC-anchored path as
+  every other rename, so it lands on every surface at once
+- Release rule written down in `AGENTS.md`: a user-visible change bumps
+  `manifest.json` in the same commit, adds the CHANGELOG entry under that exact
+  version, and updates the README badge
+
 ## 0.10.0 - 2026-09-17
 
 - **A name you set is anchored to the MAC, and follows the box everywhere.** An
