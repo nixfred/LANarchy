@@ -506,6 +506,26 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
     # The network populates the view; the inventory only records your overrides.
     # A discovered box you have not curated still shows up, and a device you
     # dismissed stays dismissed because the dismissal is keyed by hardware.
+    # An INVENTORY node can be the gateway too. 0.16.1 excluded only DISCOVERED
+    # candidates, so a router the user had curated still drew its own machine
+    # card beside the gateway card representing the same hardware. A router also
+    # has more than one interface, so its other MACs (which the controller
+    # reports) belong in the same exclusion.
+    def _is_the_gateway(row: dict) -> bool:
+        mac = str(row.get("mac") or "").lower()
+        if mac and ("mac:" + mac) in gateway_keys:
+            return True
+        return str(row.get("ip") or "") in gateway_ips
+
+    absorbed = [r for r in machines if _is_the_gateway(r)]
+    if absorbed:
+        machines = [r for r in machines if not _is_the_gateway(r)]
+        # Keep the name the user chose over a generic "Gateway".
+        named = next((r for r in absorbed if r.get("label")), None)
+        if named and gateway is not None:
+            gateway["label"] = str(named["label"])
+            gateway["inventory_id"] = str(named.get("id") or "")
+
     candidates = merge_discover(found, unifi.get("discover") or [], known=known_targets(nodes, hist))
 
     # The controller names its own hardware and states its role. A candidate that

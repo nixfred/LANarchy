@@ -3,6 +3,17 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.17.1 - 2026-09-17
+
+- **Actually absorbs a curated router this time.** The 0.17.0 change did not
+  reach the file: the edit matched nothing and was reported as done anyway. An
+  inventory node whose MAC or address is the gateway's is now genuinely folded
+  into the gateway card, keeping the name you gave it
+- **A flapping device no longer notifies.** A phone that sleeps transitions a
+  dozen times an hour, and alerting on each one is how a useful alarm becomes
+  something you turn off. Anything the panel already reports as unstable (4+
+  transitions in the last hour) is excluded from down notifications
+
 ## 0.17.0 - 2026-09-17
 
 - **The LAN bucket is gone.** It aggregated leftover `host` rows and LAN metrics

@@ -118,10 +118,27 @@ def notify_where(inv: dict, node_id: str) -> str:
     return ""
 
 
+# A device that bounces constantly is not news every time it bounces. A phone
+# that sleeps flaps a dozen times an hour, and alerting on each transition is
+# how a useful alarm becomes something you switch off.
+FLAP_MUTE_THRESHOLD = 4
+
+
+def is_flapping(glance: dict, node_id: str, threshold: int = FLAP_MUTE_THRESHOLD) -> bool:
+    flaps = glance.get("flaps") if isinstance(glance, dict) else None
+    if not isinstance(flaps, dict):
+        return False
+    try:
+        return int(flaps.get(str(node_id)) or 0) >= threshold
+    except (TypeError, ValueError):
+        return False
+
+
 def apply_status_updates(
     state: dict,
     inv: dict,
     updates: list[tuple[str, str, str]],
+    glance: dict | None = None,
 ) -> list[dict[str, Any]]:
     """Apply (node_id, label, status) rows; return notifications emitted."""
     threshold = fail_streak_threshold(inv)
@@ -138,6 +155,9 @@ def apply_status_updates(
                 node_notify_enabled(inv, nid)
                 and int(entry["downStreak"]) >= threshold
                 and not entry.get("alerted")
+                # An unstable node is reported in the panel as unstable; it does
+                # not also get a notification every time it drops.
+                and not is_flapping(glance or {}, nid)
             ):
                 name = notify_name(inv, nid, label)
                 where = notify_where(inv, nid)
@@ -175,7 +195,7 @@ def process_probe_glance(
                     str(row.get("status") or "unknown"),
                 )
             )
-    sent = apply_status_updates(state, inv, updates)
+    sent = apply_status_updates(state, inv, updates, glance)
     sent.extend(apply_arrival_alerts(inv, glance))
     sent.extend(apply_unknown_neighbor_alerts(state, inv, glance))
     save_notify_state(state, state_path)
