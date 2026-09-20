@@ -16,6 +16,23 @@ from inventory_lib import (
 )
 from plugin_paths import inventory_path as user_inventory_path
 
+MAX_WRITE_BYTES = 2 * 1024 * 1024
+
+
+def _load_write_payload(json_file: Path):
+    if str(json_file) == "-":
+        # QML sends compact JSON plus a newline (one document). Cap so a
+        # stalled pipe cannot fill the collector.
+        raw_bytes = sys.stdin.buffer.readline(MAX_WRITE_BYTES + 1)
+        if len(raw_bytes) > MAX_WRITE_BYTES:
+            print(json.dumps({"error": "inventory write exceeds 2 MiB"}), file=sys.stderr)
+            return None
+        return json.loads(raw_bytes.decode())
+    if json_file.stat().st_size > MAX_WRITE_BYTES:
+        print(json.dumps({"error": "inventory write exceeds 2 MiB"}), file=sys.stderr)
+        return None
+    return json.loads(json_file.read_text(encoding="utf-8"))
+
 
 def cmd_dump(path: Path) -> int:
     inv = load_inventory(path)
@@ -64,10 +81,9 @@ def cmd_migrate(path: Path) -> int:
 
 
 def cmd_write(path: Path, json_file: Path) -> int:
-    if str(json_file) == "-":
-        raw = json.load(sys.stdin)
-    else:
-        raw = json.loads(json_file.read_text(encoding="utf-8"))
+    raw = _load_write_payload(json_file)
+    if raw is None:
+        return 1
     if isinstance(raw, list):
         raw = {"schemaVersion": 2, "nodes": raw}
     nodes = raw.get("nodes") if isinstance(raw, dict) else None

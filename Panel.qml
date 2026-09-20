@@ -1010,11 +1010,9 @@ Panel {
   }
 
   function sendInventoryWrite(payloadObj) {
-    var text = JSON.stringify(payloadObj)
-    invWriteProc.command = [
-      "bash", "-c",
-      "f=$(mktemp /tmp/homelab-mesh-inv.XXXXXX.json) && printf '%s' '" + text.replace(/'/g, "'\\''") + "' > \"$f\" && python3 \"" + root.pluginDir + "/inventory_cli.py\" write \"$f\"; ec=$?; rm -f \"$f\"; exit $ec"
-    ]
+    invWriteProc.payload = JSON.stringify(payloadObj)
+    invWriteProc.command = ["python3", root.pluginDir + "/inventory_cli.py", "write", "-"]
+    invWriteProc.stdinEnabled = true
     invWriteProc.running = true
   }
 
@@ -2532,6 +2530,12 @@ Panel {
   Process {
     id: invWriteProc
     environment: root.pyEnv
+    property string payload: ""
+    stdinEnabled: true
+    onStarted: {
+      write(payload + "\n")
+      payload = ""
+    }
     stdout: StdioCollector { waitForEnd: true }
     stderr: StdioCollector {
       waitForEnd: true

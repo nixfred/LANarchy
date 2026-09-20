@@ -126,11 +126,27 @@ def check_tcp(host: str, port: int) -> str:
         return "down"
 
 
+HTTP_PROBE_MAX_BYTES = 64 * 1024
+
+
 def check_http(url: str) -> str:
     try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return "down"
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
-            return "up" if 200 <= int(resp.status) < 400 else "down"
+            status = int(resp.status)
+            # Status is enough; drain a small prefix so a huge body cannot fill us.
+            leftover = HTTP_PROBE_MAX_BYTES
+            while leftover > 0:
+                chunk = resp.read(min(8192, leftover))
+                if not chunk:
+                    break
+                leftover -= len(chunk)
+            return "up" if 200 <= status < 400 else "down"
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError):
         return "down"
 

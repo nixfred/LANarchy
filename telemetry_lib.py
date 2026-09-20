@@ -271,11 +271,26 @@ def rates_from(prev: dict | None, ts_prev: float | None, report: dict | None, ts
     return {"rx_bps": rx, "tx_bps": tx}
 
 
+# Health timing discards the body; still cap so a hostile URL cannot stream forever.
+HTTP_TIMING_MAX_BYTES = 1 * 1024 * 1024
+
+
 def http_timing(url: str) -> dict[str, Any]:
     out = _run(
         [
-            "curl", "-sk", "-o", "/dev/null", "--max-time", str(HTTP_TIMEOUT_S),
-            "-w", "%{http_code} %{time_connect} %{time_starttransfer}", url,
+            "curl",
+            "-s",
+            "--proto",
+            "=http,https",
+            "-o",
+            "/dev/null",
+            "--max-filesize",
+            str(HTTP_TIMING_MAX_BYTES),
+            "--max-time",
+            str(HTTP_TIMEOUT_S),
+            "-w",
+            "%{http_code} %{time_connect} %{time_starttransfer}",
+            url,
         ],
         HTTP_TIMEOUT_S + 1.0,
     )

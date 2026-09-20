@@ -12,6 +12,15 @@ HERE = Path(__file__).resolve().parent
 CLI = HERE / "inventory_cli.py"
 
 
+def _write_stdin(inv_path: Path, payload: dict | bytes) -> subprocess.CompletedProcess:
+    raw = payload if isinstance(payload, (bytes, bytearray)) else (json.dumps(payload) + "\n").encode()
+    return subprocess.run(
+        [sys.executable, str(CLI), str(inv_path), "write", "-"],
+        input=raw,
+        capture_output=True,
+    )
+
+
 def _write(inv_path: Path, payload: dict) -> subprocess.CompletedProcess:
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
         json.dump(payload, fh)
@@ -168,10 +177,65 @@ def test_write_keeps_partial_settings() -> None:
         assert saved == {"failStreakThreshold": 3}
 
 
+def test_write_from_stdin() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        inv = Path(td) / "inventory.json"
+        inv.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 2,
+                    "nodes": [
+                        {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        proc = _write_stdin(
+            inv,
+            {
+                "schemaVersion": 2,
+                "nodes": [
+                    {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None},
+                    {"id": "deba", "type": "machine", "label": "deba", "dns": "deba.lan", "ip": None},
+                ],
+            },
+        )
+        assert proc.returncode == 0, proc.stderr
+        saved = json.loads(inv.read_text(encoding="utf-8"))
+        assert [n["id"] for n in saved["nodes"]] == ["aka", "deba"]
+
+
+def test_write_stdin_refuses_overflow() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        inv = Path(td) / "inventory.json"
+        inv.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 2,
+                    "nodes": [
+                        {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan", "ip": None}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        # 2 MiB + 1, no newline — readline returns the cap and we refuse.
+        from inventory_cli import MAX_WRITE_BYTES
+
+        proc = _write_stdin(inv, b"x" * (MAX_WRITE_BYTES + 1))
+        assert proc.returncode != 0
+        assert b"exceeds 2 MiB" in proc.stderr
+        saved = json.loads(inv.read_text(encoding="utf-8"))
+        assert [n["id"] for n in saved["nodes"]] == ["aka"]
+
+
 if __name__ == "__main__":
     test_refuse_empty_write()
     test_write_keeps_one_node()
     test_write_keeps_group_and_map_extras()
     test_empty_settings_clears_stale_keys()
     test_write_keeps_partial_settings()
+    test_write_from_stdin()
+    test_write_stdin_refuses_overflow()
     print("ok")

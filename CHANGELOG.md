@@ -3,6 +3,12 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.4.3 — 2026-09-20
+
+- curl health and speedtest probes verify TLS (`-s`, not `-sk`) and refuse non-HTTP(S) URLs
+- Inventory saves go over stdin to `inventory_cli.py write -` (no `/tmp`, no JSON in argv); stdin/file writes capped at 2 MiB
+- `check_http` is scheme-locked to http(s) and reads at most 64 KiB
+
 ## 0.4.2 — 2026-09-20
 
 - Authenticated UniFi HTTPS always verifies TLS (inventory `verify: false` is ignored)
