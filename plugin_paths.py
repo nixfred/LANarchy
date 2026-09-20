@@ -214,6 +214,16 @@ def unifi_secrets_path() -> Path:
     return state_dir() / "unifi-secrets.json"
 
 
+def unifi_tls_pin_path() -> Path:
+    """TOFU / explicit SHA-256 pins for UniFi controller certificates."""
+    return state_dir() / "unifi-tls.json"
+
+
+def unifi_ca_path() -> Path:
+    """Optional user-installed UniFi CA / controller certificate (PEM)."""
+    return state_dir() / "unifi-ca.pem"
+
+
 def assert_private_secrets_file(path: Path) -> None:
     """Refuse to read credentials that are not a private, owner-only regular file.
 

@@ -3,6 +3,12 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.4.2 — 2026-09-20
+
+- Authenticated UniFi HTTPS always verifies TLS (inventory `verify: false` is ignored)
+- Trust is a user CA (`settings.unifi.ca` / `UNIFI_CA` / `unifi-ca.pem`), an explicit SHA-256 pin, or TOFU pin in `unifi-tls.json`; pin mismatch fails closed
+- Credentials are refused over plain HTTP
+
 ## 0.4.1 — 2026-09-19
 
 - State dir created/tightened to mode `0700`; UniFi secrets must be a regular owner-only `0600` file (symlink / group-other bits refused)

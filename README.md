@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, keep `.lan` name
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-0.4.1-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.2-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `donnie.homelab-mesh` · Install: `~/.config/omarchy/plugins/donnie.homelab-mesh/`  
@@ -86,6 +86,16 @@ install -m 600 unifi-secrets.json.example ~/.local/state/lanarchy/unifi-secrets.
 ```
 
 The state directory is mode `0700` and the secrets file must be a regular file owned by you at mode `0600`. Lanarchy refuses to read a world/group-readable or symlinked secrets file.
+
+Authenticated UniFi calls always verify TLS. A public CA works as-is. For a self-signed Cloud Gateway / UDM, either install the controller certificate as a CA or pin its leaf SHA-256 — first successful handshake TOFU-pins it to `unifi-tls.json` (mode `0600`). A later cert change fails closed until you replace the pin or CA.
+
+```bash
+# User-installed CA (PEM)
+install -m 644 /path/to/unifi.pem ~/.local/state/lanarchy/unifi-ca.pem
+# Or set settings.unifi.ca / UNIFI_CA, or settings.unifi.fingerprint / UNIFI_FINGERPRINT
+# Reset a TOFU pin after a legitimate controller reissue:
+rm ~/.local/state/lanarchy/unifi-tls.json
+```
 
 Shipped `inventory.default.json` is a tiny localhost starter (local telemetry on so Flow has rates on first install). On first run it is copied to `~/.local/state/lanarchy/inventory.json`. Use **Setup → Search network** to build your mesh.
 
@@ -207,7 +217,9 @@ Runtime state lives under `~/.local/state/lanarchy/` (or `$XDG_STATE_HOME/lanarc
 | `notify-state.json` | Fail streaks + unknown-neighbor mute |
 | `snapshot.json` | Last glance (daemon / probe) |
 | `seen-devices.json` | New-device arrival baseline |
-| `unifi-secrets.json` | API key (optional) |
+| `unifi-secrets.json` | API key (optional); must be mode `0600`, regular file, owned by you |
+| `unifi-tls.json` | TOFU / explicit controller cert SHA-256 pins (mode `0600`) |
+| `unifi-ca.pem` | Optional user-installed UniFi CA |
 
 Useful `inventory.json` settings:
 
@@ -218,7 +230,7 @@ Useful `inventory.json` settings:
     "failStreakThreshold": 3,
     "unknownNeighborNotify": true,
     "newDeviceNotify": true,
-    "unifi": { "url": "https://192.168.1.1", "site": "default" },
+    "unifi": { "url": "https://192.168.1.1", "site": "default", "ca": "", "fingerprint": "" },
     "speedtestUrl": "https://files.lan/"
   },
   "nodes": []

@@ -33,6 +33,8 @@ inventory.lab.json
 inventory.json.bak
 *.log
 unifi-secrets.json
+unifi-tls.json
+unifi-ca.pem
 snapshot.json
 history.json*
 notify-state.json
