@@ -9,6 +9,26 @@ with upstream; he merged five pull requests from this fork and released 0.4.0
 himself. Versions below 1.0.0 in this file are this fork's own numbering from
 before the split, and do not correspond to upstream releases.
 
+## 1.1.1 - 2026-09-23
+
+- **Fixed: a machine with a `.local` name could report down while sitting right
+  there.** A `.local` name is an mDNS name, and the system resolver only answers
+  it when `nss-mdns` is installed and healthy. When it is not, `ping fnix.local`
+  does not fail fast, it hangs past the probe's entire budget: measured here,
+  `getent hosts fnix.local` timed out past 4s every single time while
+  `avahi-resolve-host-name` answered in 0.02s. The node therefore reported
+  "unknown" and fell back to the address stored when it was added — and on a
+  laptop using a private, rotating wifi MAC that address had long gone stale, so
+  both paths failed and the card went red. `.local` names are now resolved with
+  the mDNS resolver. Missing avahi is not an error; the ordinary path is used
+- **A curated machine that did not answer, whose other interface did, is up.**
+  1.0.1 stopped a multihomed box drawing two cards by discarding the discovered
+  interface. Discarding it was too strong: when the curated node's own address
+  went stale, the row proving the machine was reachable had just been deleted.
+  The discovered interface is kept as a shadow instead, and a curated row that
+  failed adopts the address that answered, recording which one in `viaInterface`
+  so the card does not quietly disagree with the address you typed
+
 ## 1.1.0 - 2026-09-18
 
 - **The bar mark is a traffic light again: green, amber, red.** It already took

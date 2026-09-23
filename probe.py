@@ -83,6 +83,40 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+MDNS_TIMEOUT_S = 1.0
+
+
+def resolve_mdns(name: str) -> str | None:
+    """Resolve a .local name with the mDNS resolver, not the system one.
+
+    A `.local` name is an mDNS name, and the system resolver only answers it if
+    nss-mdns is installed and healthy. When it is not, `ping fnix.local` does
+    not fail fast -- it hangs past the probe's whole budget, so the node reports
+    "unknown" and falls back to whatever address was stored when it was added.
+    On a laptop using a private, rotating wifi MAC that address is stale within
+    days, so a machine sitting right there reads as down.
+
+    Measured on the box this was written on: `getent hosts fnix.local` times out
+    past 4s every time, while `avahi-resolve-host-name` answers in 0.02s.
+
+    Returns None if avahi is absent or does not know the name, and the caller
+    then uses the ordinary path.
+    """
+    if not name.lower().endswith(".local"):
+        return None
+    try:
+        proc = subprocess.run(
+            ["avahi-resolve-host-name", "-4", name],
+            capture_output=True, text=True, timeout=MDNS_TIMEOUT_S,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    if proc.returncode != 0:
+        return None
+    parts = (proc.stdout or "").split()
+    return parts[-1] if len(parts) >= 2 else None
+
+
 def ping_host(host: str) -> tuple[str, float | None, int | None]:
     """ICMP ping → (status, rtt_ms, ttl). unknown if probe can't run or DNS misses.
 
@@ -144,7 +178,15 @@ def check_http(url: str) -> str:
 def probe_rtt_node(node: dict) -> dict:
     host, _port, _url = probe_target(node)
     host = host or ""
-    status, rtt, ttl = ping_host(host)
+    # Resolve .local ourselves before handing it to ping, which would otherwise
+    # block on a system resolver that may not speak mDNS at all.
+    mdns = resolve_mdns(host)
+    if mdns:
+        status, rtt, ttl = ping_host(mdns)
+        if status != "unknown":
+            host = mdns
+    else:
+        status, rtt, ttl = ping_host(host)
     if status == "unknown":
         # The dns name did not resolve. We stored an address for exactly this
         # case, so use it rather than reporting a box we can reach as unknown.
@@ -583,6 +625,10 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
                 curated_names.add(val.removesuffix(".lan"))
     curated_names.discard("")
 
+    # Discovered interfaces of an already-curated machine, by name. Not cards of
+    # their own, but the proof of where that machine is actually answering.
+    shadowed: dict[str, dict] = {}
+
     auto_rows: list[dict] = []
     device_rows: list[dict] = []
     for cand in candidates:
@@ -609,16 +655,7 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         # discovery found underneath it.
         apply_name(row, renamed)
 
-        # A rename can collide with a box that is already curated. Discovery
-        # excludes anything it recognises, but that check runs on the label
-        # discovery found, before the user's override is applied. Rename a
-        # discovered interface to match a curated node -- which is exactly what
-        # happens on a multihomed box, where the wired and wireless sides have
-        # different MACs -- and the same machine drew two cards, one per
-        # interface. The curated node is authoritative, so the second is
-        # dropped after naming, where the collision is finally visible.
-        if str(row.get("label") or "").strip().lower() in curated_names:
-            continue
+        collides = str(row.get("label") or "").strip().lower() in curated_names
 
         if str(cand.get("type") or "") == "machine":
             # A box you can log into earns a place on the map without being
@@ -628,6 +665,29 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             if ttl is not None:
                 row["ttl"] = ttl
             row["os"] = identify(ttl=ttl, services=row["services"])
+
+            # A rename can collide with a box that is already curated, because
+            # discovery's known-check runs on the label discovery found, before
+            # the user's override is applied. That is exactly what a multihomed
+            # box looks like: wired and wireless have different MACs, so the
+            # same machine is curated on one interface and discovered on the
+            # other, and it drew two cards.
+            #
+            # It does not get its own card -- but it is NOT thrown away either,
+            # which is what the first version of this did. Discarding it meant a
+            # curated node pinned to an address that had gone stale kept
+            # reporting down while the machine was answering perfectly well on
+            # its other interface, and the card proving that had just been
+            # deleted. Keep it as a shadow, preferring one that answered, and
+            # let the curated row fall back to it below.
+            if collides:
+                name = str(row.get("label") or "").strip().lower()
+                prev = shadowed.get(name)
+                if prev is None or (str(row.get("status")) == "up"
+                                    and str(prev.get("status")) != "up"):
+                    shadowed[name] = row
+                continue
+
             auto_rows.append(row)
         else:
             # Speakers, TVs and phones are real and are listed, but they do not
@@ -668,6 +728,38 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
             set_node_meta(hist, str(r.get("id") or ""), {
                 "no_telemetry_until": 0 if answered else ts_now + TELEMETRY_RETRY_S
             })
+
+    # A curated machine that did not answer, whose other interface did, is up.
+    #
+    # A node stores a name and an address, and both can fail independently: an
+    # mDNS name can stop resolving inside the probe's timeout, and a stored
+    # address goes stale the moment the box takes a new lease -- which is
+    # routine on a wireless interface using a private, rotating MAC. When both
+    # fail the node reports down, which is a lie the moment any interface of
+    # that machine is answering.
+    #
+    # Discovery already proved one is. Adopt the address it answered on, and
+    # record where, so the card explains itself rather than quietly disagreeing
+    # with the address the user typed in.
+    for row in machines:
+        if str(row.get("status") or "") == "up":
+            continue
+        alt = shadowed.get(str(row.get("label") or "").strip().lower())
+        if not alt or str(alt.get("status") or "") != "up":
+            continue
+        row["status"] = "up"
+        row["rtt_ms"] = alt.get("rtt_ms")
+        row["viaInterface"] = str(alt.get("host") or alt.get("ip") or "")
+        if alt.get("host") or alt.get("ip"):
+            row["host"] = str(alt.get("host") or alt.get("ip"))
+        if alt.get("ip"):
+            row["ip"] = alt["ip"]
+        if alt.get("mac") and not row.get("mac"):
+            row["mac"] = alt["mac"]
+        if alt.get("ttl") is not None:
+            row["ttl"] = alt["ttl"]
+        if alt.get("os") and str((row.get("os") or {}).get("confidence") or "") in ("", "unknown"):
+            row["os"] = alt["os"]
 
     # Has this hardware ever been on the network before? Everything observed
     # this pass goes in the ledger; anything whose first sighting is recent and
