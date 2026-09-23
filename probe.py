@@ -77,6 +77,41 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+MDNS_TIMEOUT_S = 1.0
+
+
+def resolve_mdns(name: str) -> str | None:
+    """Resolve a .local name with the mDNS resolver, not the system one.
+
+    A `.local` name is an mDNS name, and the system resolver only answers it if
+    nss-mdns is installed and healthy. When it is not, `ping host.local` does
+    not fail fast -- it hangs past the probe's whole budget, so the node reports
+    "unknown" and falls back to whatever address was stored when it was added.
+    On a laptop using a private, rotating wifi MAC that address is stale within
+    days, so a machine sitting right there reads as down.
+
+    Measured on the box this was found on, every attempt:
+    `getent hosts <name>.local` timed out past 4s, while
+    `avahi-resolve-host-name` answered in 0.02s.
+
+    Returns None if avahi is absent or does not know the name, and the caller
+    then uses the ordinary path, so this can only add reachability.
+    """
+    if not name.lower().endswith(".local"):
+        return None
+    try:
+        proc = subprocess.run(
+            ["avahi-resolve-host-name", "-4", name],
+            capture_output=True, text=True, timeout=MDNS_TIMEOUT_S,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    if proc.returncode != 0:
+        return None
+    parts = (proc.stdout or "").split()
+    return parts[-1] if len(parts) >= 2 else None
+
+
 def ping_host(host: str) -> tuple[str, float | None, int | None]:
     """ICMP ping → (status, rtt_ms, ttl). unknown if probe can't run or DNS misses.
 
@@ -154,7 +189,15 @@ def check_http(url: str) -> str:
 def probe_rtt_node(node: dict) -> dict:
     host, _port, _url = probe_target(node)
     host = host or ""
-    status, rtt, ttl = ping_host(host)
+    # Resolve .local ourselves before handing it to ping, which would otherwise
+    # block on a system resolver that may not speak mDNS at all.
+    mdns = resolve_mdns(host)
+    if mdns:
+        status, rtt, ttl = ping_host(mdns)
+        if status != "unknown":
+            host = mdns
+    else:
+        status, rtt, ttl = ping_host(host)
     if status == "unknown":
         # The dns name did not resolve. We stored an address for exactly this
         # case, so use it rather than reporting a box we can reach as unknown.

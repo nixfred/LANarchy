@@ -3,6 +3,17 @@
 All notable changes to Lanarchy (`donnie.homelab-mesh`) are documented here.
 The version in `manifest.json` is the single source of truth.
 
+## 0.4.4 — 2026-09-23
+
+- Fixed: a node with a `.local` name could report down while it was reachable. A
+  `.local` name is an mDNS name, and the system resolver only answers it when
+  `nss-mdns` is installed and healthy. When it is not, `ping host.local` does not
+  fail fast, it hangs past the probe's whole budget, so the node reports unknown
+  and falls back to the address stored when it was added — and on a laptop using
+  a private, rotating wifi MAC that address is stale within days, so both paths
+  fail. `.local` names are now resolved with `avahi-resolve-host-name`. Missing
+  avahi, a timeout or an unknown name all fall through to the ordinary path
+
 ## 0.4.3 — 2026-09-20
 
 - curl health and speedtest probes verify TLS (`-s`, not `-sk`) and refuse non-HTTP(S) URLs
