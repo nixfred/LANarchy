@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "nixfred.lanarchy",
   "name": "LANarchy",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "author": "Fred Nix",
   "license": "MIT",
   "description": "Homelab topology map and health in the Omarchy bar — machines, services, UniFi and measured traffic. Fork of Donnie Fiander's Lanarchy.",

@@ -1936,6 +1936,24 @@ Panel {
       var next = []
       for (var i = 0; i < root.nodes.length; i++)
         if (String(root.nodes[i].id) !== id) next.push(root.nodes[i])
+
+      // Dismiss it as well as deleting it. Deleting a curated node only stops
+      // the panel curating it -- the machine is still switched on and still
+      // answering, and discovery's known-check is what had been keeping it out
+      // of the found list. Remove that and the very next scan offers it back as
+      // a discovered card, so removing anything took two goes: once to delete
+      // the node, once to dismiss what replaced it.
+      //
+      // invIgnored is read by inventoryWritePayload, so updating it before the
+      // node write puts both in a single write rather than racing two.
+      var row = root.glanceRowById(id)
+      var entries = root.ignoreEntriesFor(row, inv)
+      if (entries.length) {
+        var merged = root.withIgnored(entries)
+        if (merged.length !== root.invIgnored.length) root.invIgnored = merged
+        root.forgetRowLocally(entries[0].mac, entries[0].ip)
+      }
+
       root.writeNodes(next)
       if (root.mapSelectedId === id) root.mapSelectedId = ""
       return true
@@ -2213,22 +2231,63 @@ Panel {
     return null
   }
 
+  // Every identity worth dismissing for one device, newest first.
+  //
+  // A host answers under more than one: a MAC per interface, and an address per
+  // interface on top of that. The list used to carry a single entry, preferring
+  // the MAC, so dismissing a machine removed exactly one of its faces and the
+  // next scan handed it back under another. Removing something has to mean it
+  // is gone, not that one of its interfaces is.
+  function ignoreEntriesFor(row, node) {
+    var out = []
+    var seen = ({})
+    var when = new Date().toISOString()
+    var label = String((row && row.label) || (node && node.label) || "")
+
+    function add(mac, ip) {
+      var entry = ({})
+      if (mac) entry.mac = String(mac).toLowerCase()
+      if (ip) entry.ip = String(ip)
+      if (!entry.mac && !entry.ip) return
+      var k = (entry.mac || "") + "|" + (entry.ip || "")
+      if (seen[k]) return
+      seen[k] = true
+      if (label) entry.label = label
+      entry.ts = when
+      out.push(entry)
+    }
+
+    // The probed row first: it carries what the collector actually saw, which
+    // is fresher than whatever address was typed in when the node was added.
+    if (row) { add(row.mac, null); add(null, row.ip) }
+    if (node) { add(node.mac, null); add(null, node.ip) }
+    return out
+  }
+
+  // Merge entries into the ignored list, skipping ones already dismissed.
+  function withIgnored(entries) {
+    var next = (root.invIgnored instanceof Array ? root.invIgnored.slice() : [])
+    for (var e = 0; e < entries.length; e++) {
+      var entry = entries[e]
+      var dup = false
+      for (var i = 0; i < next.length; i++) {
+        var k = next[i]
+        if (entry.mac && String(k.mac || "").toLowerCase() === entry.mac) { dup = true; break }
+        if (entry.ip && !entry.mac && String(k.ip || "") === entry.ip) { dup = true; break }
+      }
+      if (!dup) next.push(entry)
+    }
+    return next
+  }
+
   function ignoreDevice(row) {
     if (!row) return
-    var entry = ({})
-    if (row.mac) entry.mac = String(row.mac).toLowerCase()
-    else if (row.ip) entry.ip = String(row.ip)
-    else return
-    if (row.label) entry.label = String(row.label)
-    entry.ts = new Date().toISOString()
+    var entries = root.ignoreEntriesFor(row, null)
+    if (!entries.length) return
+    var entry = entries[0]
 
-    var next = (root.invIgnored instanceof Array ? root.invIgnored.slice() : [])
-    for (var i = 0; i < next.length; i++) {
-      var k = next[i]
-      if ((entry.mac && String(k.mac || "").toLowerCase() === entry.mac)
-          || (entry.ip && !entry.mac && String(k.ip || "") === entry.ip)) return
-    }
-    next.push(entry)
+    var next = root.withIgnored(entries)
+    if (next.length === (root.invIgnored instanceof Array ? root.invIgnored.length : 0)) return
     root.invIgnored = next
 
     // Drop it from view now. The models are only replaced when the next

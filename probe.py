@@ -175,6 +175,26 @@ def check_http(url: str) -> str:
         return "down"
 
 
+def is_this_box(cand: dict, my_ips: set[str], my_macs: set[str], my_names: set[str]) -> bool:
+    """Is this discovery candidate the machine running the panel?
+
+    Checked three ways because a host answers under all of them and not always
+    the same one: a current address, any MAC this machine owns (including the
+    interfaces it is not using), and its own hostname. An address alone is not
+    enough, since a stale ARP entry for an expired lease still names the host
+    while no longer matching any address it currently holds.
+    """
+    if str(cand.get("ip") or "") in my_ips:
+        return True
+    if str(cand.get("mac") or "").lower() in my_macs:
+        return True
+    for name in (cand.get("host"), cand.get("label")):
+        n = str(name or "").strip().lower().removesuffix(".local").removesuffix(".lan")
+        if n and n in my_names:
+            return True
+    return False
+
+
 def probe_rtt_node(node: dict) -> dict:
     host, _port, _url = probe_target(node)
     host = host or ""
@@ -588,6 +608,16 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
 
     candidates = merge_discover(found, unifi.get("discover") or [], known=known_targets(nodes, hist))
 
+    # Every way this machine can show up in its own scan.
+    my_ips = local_addresses()
+    my_macs = {m.lower() for m in local_macs()}
+    my_names = {n for n in (socket.gethostname(), socket.gethostname().split(".")[0]) if n}
+    my_names = {n.strip().lower() for n in my_names}
+    # Drop them here rather than only when building cards, so the box the panel
+    # runs on is not offered in Setup's "Search network" list either. Adding
+    # yourself as a separate device is never what you meant.
+    candidates = [c for c in candidates if not is_this_box(c, my_ips, my_macs, my_names)]
+
     # The controller names its own hardware and states its role. A candidate that
     # matches one by MAC is an access point or a switch, not an anonymous address.
     gear_by_mac = {}
@@ -638,6 +668,7 @@ def _run_probe_locked(*, write_stdout: bool = True, discover: bool = True) -> di
         # Never a client card for the box that IS the gateway.
         if (key and key in gateway_keys) or str(cand.get("ip") or "") in gateway_ips:
             continue
+
         row = {
             "id": "auto:" + (key or str(cand.get("ip") or cand.get("label") or "")),
             "label": str(cand.get("label") or cand.get("ip") or "device"),

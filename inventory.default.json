@@ -1,14 +1,6 @@
 {
   "schemaVersion": 2,
-  "nodes": [
-    {
-      "id": "this-box",
-      "type": "machine",
-      "label": "This box",
-      "dns": "localhost",
-      "ip": "127.0.0.1"
-    }
-  ],
+  "nodes": [],
   "settings": {
     "mapAnimate": true
   }

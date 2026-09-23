@@ -9,6 +9,31 @@ with upstream; he merged five pull requests from this fork and released 0.4.0
 himself. Versions below 1.0.0 in this file are this fork's own numbering from
 before the split, and do not correspond to upstream releases.
 
+## 1.2.0 - 2026-09-23
+
+- **The machine you are running on is not something to monitor.** It was being
+  discovered as if it were a stranger on its own network, once per interface and
+  once per source: here it arrived three times over — as mDNS on the wired
+  address, as an ARP neighbour on a lease it no longer held, and from the
+  controller on the wireless address, each with a different MAC. Dismissing one
+  removed one face and the next scan handed the machine back under another, so
+  it looked unremovable; and the stale-lease copy answered nothing, so it sat
+  there permanently red wearing this host's own name. Discovery now excludes
+  this box by current address, by any MAC it owns including idle interfaces, and
+  by its own hostname
+- **The shipped starter no longer includes a localhost node.** You are on that
+  machine. Pinging yourself always succeeds, so the card could only ever be a
+  green square that told you nothing, and it was the thing being discovered a
+  second time. A fresh install now fills from the gateway and discovery
+- **Removing something takes once, not twice.** Deleting a curated node only
+  stopped the panel curating it — the machine was still switched on, and
+  discovery's known-check was the only thing keeping it out of the found list.
+  Removing that handed it straight back as a discovered card, so every removal
+  needed a second pass. A removal now dismisses the device in the same write
+- **Dismissing covers every identity a device has**, not just the first one
+  found. The ignored list held a single entry per device, preferring the MAC, so
+  a host with more than one interface came back under the next one
+
 ## 1.1.1 - 2026-09-23
 
 - **Fixed: a machine with a `.local` name could report down while sitting right
