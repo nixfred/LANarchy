@@ -10,7 +10,7 @@ import sys
 
 from probe import is_this_box
 
-MY_IPS = {"10.0.0.124", "10.0.0.226", "127.0.0.1"}
+MY_IPS = {"10.0.0.2", "10.0.0.3", "127.0.0.1"}
 MY_MACS = {"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"}
 MY_NAMES = {"box"}
 
@@ -20,13 +20,13 @@ def _is(cand):
 
 
 def test_matches_a_current_address():
-    assert _is({"ip": "10.0.0.124"})
-    assert _is({"ip": "10.0.0.226"})
+    assert _is({"ip": "10.0.0.2"})
+    assert _is({"ip": "10.0.0.3"})
 
 
 def test_matches_any_owned_mac_including_an_idle_interface():
     """A laptop's wifi and ethernet are both its own, even when one is unused."""
-    assert _is({"mac": "aa:bb:cc:dd:ee:02", "ip": "10.0.0.99"})
+    assert _is({"mac": "aa:bb:cc:dd:ee:02", "ip": "10.0.0.8"})
     assert _is({"mac": "AA:BB:CC:DD:EE:01"})
 
 
@@ -36,14 +36,14 @@ def test_matches_its_own_hostname():
     This is the case an address check alone misses: the address is no longer
     ours, but the record is still us.
     """
-    assert _is({"label": "box", "ip": "10.0.0.111", "mac": "99:99:99:99:99:99"})
-    assert _is({"host": "box.local", "ip": "10.0.0.111"})
+    assert _is({"label": "box", "ip": "10.0.0.9", "mac": "99:99:99:99:99:99"})
+    assert _is({"host": "box.local", "ip": "10.0.0.9"})
     assert _is({"host": "BOX.lan"})
 
 
 def test_a_real_neighbour_is_left_alone():
-    assert not _is({"label": "nas", "ip": "10.0.0.10", "mac": "11:22:33:44:55:66"})
-    assert not _is({"label": "boxer", "ip": "10.0.0.11"})
+    assert not _is({"label": "nas", "ip": "10.0.0.20", "mac": "11:22:33:44:55:66"})
+    assert not _is({"label": "boxer", "ip": "10.0.0.21"})
     assert not _is({})
 
 
