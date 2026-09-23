@@ -2211,22 +2211,54 @@ Panel {
     return null
   }
 
+  // Every identity worth dismissing for one device.
+  //
+  // A host answers under more than one: a MAC per interface, and an address per
+  // interface on top of that. The list held a single entry, preferring the MAC,
+  // so dismissing a machine removed exactly one of its faces and the next scan
+  // handed it back under another.
+  function ignoreEntriesFor(row) {
+    var out = []
+    var seen = ({})
+    var when = new Date().toISOString()
+    var label = String((row && row.label) || "")
+
+    function add(mac, ip) {
+      var entry = ({})
+      if (mac) entry.mac = String(mac).toLowerCase()
+      if (ip) entry.ip = String(ip)
+      if (!entry.mac && !entry.ip) return
+      var k = (entry.mac || "") + "|" + (entry.ip || "")
+      if (seen[k]) return
+      seen[k] = true
+      if (label) entry.label = label
+      entry.ts = when
+      out.push(entry)
+    }
+
+    if (row) { add(row.mac, null); add(null, row.ip) }
+    return out
+  }
+
   function ignoreDevice(row) {
     if (!row) return
-    var entry = ({})
-    if (row.mac) entry.mac = String(row.mac).toLowerCase()
-    else if (row.ip) entry.ip = String(row.ip)
-    else return
-    if (row.label) entry.label = String(row.label)
-    entry.ts = new Date().toISOString()
+    var entries = root.ignoreEntriesFor(row)
+    if (!entries.length) return
+    var entry = entries[0]
 
     var next = (root.invIgnored instanceof Array ? root.invIgnored.slice() : [])
-    for (var i = 0; i < next.length; i++) {
-      var k = next[i]
-      if ((entry.mac && String(k.mac || "").toLowerCase() === entry.mac)
-          || (entry.ip && !entry.mac && String(k.ip || "") === entry.ip)) return
+    var added = false
+    for (var e = 0; e < entries.length; e++) {
+      var cand = entries[e]
+      var dup = false
+      for (var i = 0; i < next.length; i++) {
+        var k = next[i]
+        if (cand.mac && String(k.mac || "").toLowerCase() === cand.mac) { dup = true; break }
+        if (cand.ip && !cand.mac && String(k.ip || "") === cand.ip) { dup = true; break }
+      }
+      if (!dup) { next.push(cand); added = true }
     }
-    next.push(entry)
+    if (!added) return
     root.invIgnored = next
 
     // Drop it from view now. The models are only replaced when the next
