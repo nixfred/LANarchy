@@ -1,6 +1,6 @@
 """A .local name must be resolved by the mDNS resolver, not the system one.
 
-`ping fnix.local` only works if nss-mdns is installed and healthy. When it is
+`ping laptop.local` only works if nss-mdns is installed and healthy. When it is
 not, it does not fail fast -- it hangs past the probe's whole budget, so the
 node reports "unknown" and falls back to the address stored when it was added.
 On a laptop using a private, rotating wifi MAC that address is stale within
@@ -31,9 +31,9 @@ def _restore(real):
 
 
 def test_resolves_a_local_name():
-    real = _patch(lambda *a, **k: _Proc(0, "fnix.local\t10.0.0.128\n"))
+    real = _patch(lambda *a, **k: _Proc(0, "laptop.local\t10.0.0.42\n"))
     try:
-        assert resolve_mdns("fnix.local") == "10.0.0.128"
+        assert resolve_mdns("laptop.local") == "10.0.0.42"
     finally:
         _restore(real)
 
@@ -57,7 +57,7 @@ def test_missing_avahi_is_not_an_error():
         raise FileNotFoundError("avahi-resolve-host-name")
     real = _patch(boom)
     try:
-        assert resolve_mdns("fnix.local") is None
+        assert resolve_mdns("laptop.local") is None
     finally:
         _restore(real)
 
@@ -67,20 +67,20 @@ def test_timeout_and_failure_return_none():
         raise subprocess.TimeoutExpired("avahi-resolve-host-name", 1.0)
     real = _patch(slow)
     try:
-        assert resolve_mdns("fnix.local") is None
+        assert resolve_mdns("laptop.local") is None
     finally:
         _restore(real)
     real = _patch(lambda *a, **k: _Proc(1, ""))
     try:
-        assert resolve_mdns("fnix.local") is None
+        assert resolve_mdns("laptop.local") is None
     finally:
         _restore(real)
 
 
 def test_unparseable_output_returns_none():
-    real = _patch(lambda *a, **k: _Proc(0, "fnix.local\n"))
+    real = _patch(lambda *a, **k: _Proc(0, "laptop.local\n"))
     try:
-        assert resolve_mdns("fnix.local") is None
+        assert resolve_mdns("laptop.local") is None
     finally:
         _restore(real)
 
