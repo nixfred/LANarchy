@@ -9,6 +9,30 @@ with upstream; he merged five pull requests from this fork and released 0.4.0
 himself. Versions below 1.0.0 in this file are this fork's own numbering from
 before the split, and do not correspond to upstream releases.
 
+## 1.3.0 - 2026-09-24
+
+Security hardening taken from upstream (DonnieFi/OmarPlugs 0.4.1–0.4.3), which
+this fork had not carried since the split at `donnie-0.4.0`.
+
+- **UniFi calls verify TLS.** Authenticated calls are HTTPS-only and always
+  verify. A public CA works as-is; a self-signed Cloud Gateway / UDM is handled
+  by a user CA, an explicit leaf SHA-256, or trust-on-first-use, which pins the
+  leaf to `unifi-tls.json` at `0600` and fails closed if the certificate later
+  changes. Inventory `verify: false` is ignored, so a stored setting cannot
+  silently turn verification off. The credential involved is a UniFi API key,
+  and the old path sent it to a controller whose certificate was never checked
+- **The secrets file must be yours alone.** The state directory is created
+  `0700`, and a secrets file that is world- or group-readable, or a symlink, is
+  refused rather than read
+- **Inventory saves no longer go through /tmp.** They are written to
+  `inventory_cli.py write -` over stdin. The old path wrote the whole inventory
+  to a predictable `/tmp` file and interpolated the JSON into a `bash -c`
+  string, so its contents were briefly world-readable and a quote in any label
+  was a shell-injection hazard
+- **Probes cannot be made to read forever.** curl health and speedtest probes
+  verify TLS and refuse a non-http(s) URL; `check_http` is scheme-locked and
+  reads at most 64 KiB; stdin and file inventory writes are capped at 2 MiB
+
 ## 1.2.0 - 2026-09-23
 
 - **The machine you are running on is not something to monitor.** It was being
