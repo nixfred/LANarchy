@@ -11,6 +11,17 @@ before the split, and do not correspond to upstream releases.
 
 ## 1.3.0 - 2026-09-24
 
+- **Fixed: the real reason a removal needed two goes.** The inventory was loaded
+  only when the panel was opened or Setup was entered. Until one of those had
+  happened the panel held nothing, and `writeInventoryWithOverrides` refused
+  every write — *silently*. The row vanished from the view, nothing reached
+  disk, and the next reload brought it straight back, so the second attempt was
+  the one that appeared to work. The inventory is now loaded when the plugin
+  starts, and a write that still cannot proceed says so instead of vanishing.
+  Verified by dismissing a device over IPC without ever opening the panel:
+  before, the ignored list stayed at 4 and the change was lost; now it lands on
+  the first attempt
+
 Security hardening taken from upstream (DonnieFi/OmarPlugs 0.4.1–0.4.3), which
 this fork had not carried since the split at `donnie-0.4.0`.
 
