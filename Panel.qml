@@ -1747,6 +1747,13 @@ Panel {
     root.close()
   }
 
+  // The inventory has to be loaded before anything can be written, because a
+  // write is a whole-file replacement built from what the panel is holding. It
+  // is loaded only when the panel is opened or Setup is entered, so until one of
+  // those has happened the panel holds nothing and every override write is
+  // refused -- silently, see writeInventoryWithOverrides below.
+  Component.onCompleted: root.loadInventory()
+
   function loadInventory() {
     root.inventoryError = ""
     root.inventoryLoading = true
@@ -2153,7 +2160,14 @@ Panel {
   // than the file (a node added from another view, or by another instance), and
   // resending it would delete whatever it does not know about.
   function writeInventoryWithOverrides(ignored, names) {
-    if (!root.inventoryReady || root.inventoryLoading) return
+    // Never drop this on the floor. The caller has already changed what is on
+    // screen, so returning quietly leaves the UI showing something that was
+    // never saved, and the next reload silently undoes it.
+    if (!root.inventoryReady || root.inventoryLoading) {
+      root.inventoryError = "Inventory still loading — try that again in a moment"
+      if (!root.inventoryLoading) root.loadInventory()
+      return false
+    }
     root.runInventoryWrite({
       schemaVersion: 2,
       settings: root.invSettings && typeof root.invSettings === "object" ? root.invSettings : {},
