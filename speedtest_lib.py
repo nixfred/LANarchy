@@ -139,7 +139,9 @@ def curl_throughput(url: str, *, run: RunFn | None = None, timeout_s: float = CU
     got = run(
         [
             "curl",
-            "-sk",
+            "-s",
+            "--proto",
+            "=http,https",
             "-o",
             "/dev/null",
             "--max-time",

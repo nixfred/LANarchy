@@ -58,10 +58,16 @@ def test_parse_curl_writeout() -> None:
 
 
 def test_curl_ok_and_http_error() -> None:
+    seen = {}
+
     def run_ok(args, timeout, stdin=None):
+        seen["args"] = args
         return RunResult(0, "200 1000 0.5 2000", "")
 
     got = curl_throughput("https://files.lan/", run=run_ok)
+    assert "-k" not in seen["args"]
+    assert "-s" in seen["args"]
+    assert seen["args"][seen["args"].index("--proto") + 1] == "=http,https"
     assert got == {
         "ok": True,
         "method": "curl",
