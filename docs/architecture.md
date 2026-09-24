@@ -16,6 +16,8 @@ All user-writable state lives under:
 | `history.json` | Ring buffer of RTT samples and status events |
 | `notify-state.json` | Ephemeral fail-streak counters (rebuilt from history on miss) |
 | `unifi-secrets.json` | Optional UniFi API key or user/pass. Never committed; never copied into inventory |
+| `unifi-tls.json` | SHA-256 pins for the controller certificate (TOFU or explicit). Mode `0600` |
+| `unifi-ca.pem` | Optional user-installed UniFi CA / controller PEM |
 
 Repo-shipped `inventory.default.json` is a localhost starter that lives in the plugin install directory (same tree as `Panel.qml`). It is copied to `inventory.json` on first run and never written to again. Sidecars (`snapshot.json`, `history.json`, …) are written next to it.
 
@@ -32,7 +34,9 @@ Optional **root** fields (v2.1, ignored by readers that only know v2):
     "failStreakThreshold": 3,
     "unifi": {
       "url": "https://192.168.1.1",
-      "site": "default"
+      "site": "default",
+      "ca": "",
+      "fingerprint": ""
     },
     "speedtestUrl": "https://files.lan/"
   },
@@ -210,8 +214,8 @@ Ethernet negotiated below 1000 Mbit is `link.grade: degraded` (amber on the dash
 
 ## UniFi
 
-Optional. The collector always tries `GET {settings.unifi.url}/api/system` (no auth) so a Cloud Gateway / UDM shows name + model on the dash. Clients, APs, and switches require credentials in `unifi-secrets.json`:
+Optional. The collector always tries `GET {settings.unifi.url}/api/system` (no auth) so a Cloud Gateway / UDM shows name + model on the dash. Clients, APs, and switches require credentials in `state_dir()/unifi-secrets.json`. Credentialed calls are HTTPS-only and always verify TLS: user CA (`settings.unifi.ca` / `UNIFI_CA` / `unifi-ca.pem`), explicit leaf SHA-256 (`settings.unifi.fingerprint` / `UNIFI_FINGERPRINT`), stored TOFU pin in `unifi-tls.json`, or the system CA store. System-CA failure on a self-signed controller TOFU-pins the leaf and fails closed on a later mismatch. Inventory `verify: false` is ignored.
 
-Dotenv (`UNIFI_KEY=...`) or JSON (`{"apiKey":"..."}`). Cookie login: `UNIFI_USER` / `UNIFI_PASS`. Env fallbacks: `UNIFI_KEY`, `UNIFI_API_KEY`, `UNIFI_USER`, `UNIFI_PASS`, `UNIFI_URL`.
+Dotenv (`UNIFI_KEY=...`) or JSON (`{"apiKey":"..."}`). Cookie login: `UNIFI_USER` / `UNIFI_PASS`. Env fallbacks: `UNIFI_KEY`, `UNIFI_API_KEY`, `UNIFI_USER`, `UNIFI_PASS`, `UNIFI_URL`, `UNIFI_CA`, `UNIFI_FINGERPRINT`.
 
 `snapshot.unifi` is `{ok, auth, name, model, mac, devices, clients, discover}`. `discover[]` is candidates only — the collector never writes them into `inventory.json`.

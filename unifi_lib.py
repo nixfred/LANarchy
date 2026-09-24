@@ -1,17 +1,31 @@
 """Local UniFi OS / Network Application collector. No extra packages."""
 from __future__ import annotations
 
+import hashlib
+import http.client
 import http.cookiejar
+import ipaddress
 import json
 import os
 import re
+import socket
 import ssl
 import urllib.error
 import urllib.request
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
-from plugin_paths import assert_private_secrets_file, unifi_secrets_path
+from plugin_paths import (
+    SECRETS_FILE_MODE,
+    assert_private_secrets_file,
+    atomic_write_json,
+    load_json_or,
+    unifi_ca_path,
+    unifi_secrets_path,
+    unifi_tls_pin_path,
+)
 
 DEFAULT_URL = "https://192.168.1.1"
 TIMEOUT_S = 8.0
@@ -35,10 +49,18 @@ def unifi_config(inv: dict | None) -> dict[str, Any]:
     raw = settings.get("unifi") if isinstance(settings, dict) else None
     raw = raw if isinstance(raw, dict) else {}
     url = str(raw.get("url") or os.environ.get("UNIFI_URL") or DEFAULT_URL).rstrip("/")
+    ca = str(raw.get("ca") or raw.get("caFile") or os.environ.get("UNIFI_CA") or "").strip()
+    fingerprint = normalize_fingerprint(
+        str(raw.get("fingerprint") or raw.get("sha256") or os.environ.get("UNIFI_FINGERPRINT") or "")
+    )
     return {
         "url": url,
         "site": str(raw.get("site") or "default"),
-        "verify": bool(raw.get("verify", False)),
+        # TLS verification is never optional for credentialed calls. Leftover
+        # inventory `verify: false` is ignored.
+        "verify": True,
+        "ca": ca,
+        "fingerprint": fingerprint,
     }
 
 
@@ -104,11 +126,200 @@ def _read_limited(resp, *, max_bytes: int = MAX_RESPONSE_BYTES) -> bytes:
     return data
 
 
+def normalize_fingerprint(raw: str) -> str:
+    """Accept `sha256:aa:bb:…` / bare hex; return 64 lowercase hex chars or ''."""
+    text = str(raw or "").strip().lower()
+    if text.startswith("sha256:"):
+        text = text[7:]
+    hexes = "".join(ch for ch in text if ch in "0123456789abcdef")
+    return hexes if len(hexes) == 64 else ""
+
+
+def cert_sha256(der: bytes) -> str:
+    return hashlib.sha256(der).hexdigest()
+
+
+def tls_origin(url: str) -> str:
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    scheme = parsed.scheme or "https"
+    port = parsed.port or (443 if scheme == "https" else 80)
+    return f"{scheme}://{host}:{port}"
+
+
+def _host_is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+@dataclass(frozen=True)
+class TlsTrust:
+    """How an HTTPS call proves it is talking to the UniFi controller."""
+
+    mode: str  # system | ca | pin
+    ca_file: str | None = None
+    fingerprint: str | None = None
+    tofu: bool = False
+    origin: str = ""
+
+
+def tls_trust_for(cfg: dict[str, Any]) -> TlsTrust:
+    """Resolve CA / explicit pin / stored TOFU pin. Never returns 'off'."""
+    origin = tls_origin(str(cfg.get("url") or ""))
+    explicit_ca = str(cfg.get("ca") or "").strip()
+    explicit_fp = normalize_fingerprint(str(cfg.get("fingerprint") or ""))
+    if explicit_ca:
+        return TlsTrust(mode="ca", ca_file=explicit_ca, origin=origin)
+    if explicit_fp:
+        return TlsTrust(mode="pin", fingerprint=explicit_fp, origin=origin)
+    shipped = unifi_ca_path()
+    if shipped.is_file():
+        return TlsTrust(mode="ca", ca_file=str(shipped), origin=origin)
+    stored = load_stored_pin(origin)
+    if stored:
+        return TlsTrust(mode="pin", fingerprint=stored, origin=origin)
+    return TlsTrust(mode="system", tofu=True, origin=origin)
+
+
+def load_stored_pin(origin: str) -> str:
+    path = unifi_tls_pin_path()
+    if not path.exists():
+        return ""
+    assert_private_secrets_file(path)
+    data = load_json_or(path, {})
+    if not isinstance(data, dict):
+        return ""
+    row = data.get(origin)
+    if isinstance(row, dict):
+        return normalize_fingerprint(str(row.get("sha256") or ""))
+    return normalize_fingerprint(str(row or ""))
+
+
+def persist_tofu_pin(origin: str, fingerprint: str) -> None:
+    path = unifi_tls_pin_path()
+    existing: dict[str, Any] = {}
+    if path.exists():
+        assert_private_secrets_file(path)
+        loaded = load_json_or(path, {})
+        if isinstance(loaded, dict):
+            existing = loaded
+    prior = ""
+    row = existing.get(origin)
+    if isinstance(row, dict):
+        prior = normalize_fingerprint(str(row.get("sha256") or ""))
+    elif row:
+        prior = normalize_fingerprint(str(row))
+    if prior and prior != fingerprint:
+        raise ssl.SSLCertVerificationError("unifi TLS pin mismatch")
+    existing[origin] = {
+        "sha256": fingerprint,
+        "capturedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    atomic_write_json(path, existing)
+    os.chmod(path, SECRETS_FILE_MODE)
+
+
+def capture_peer_fingerprint(url: str) -> str:
+    """TLS handshake only — no HTTP, no credentials."""
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if not host:
+        raise RuntimeError("unifi TLS: missing host")
+    port = parsed.port or 443
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((host, port), timeout=TIMEOUT_S) as sock:
+        with ctx.wrap_socket(sock, server_hostname=host) as ssock:
+            der = ssock.getpeercert(binary_form=True) or b""
+    if not der:
+        raise RuntimeError("unifi TLS: peer sent no certificate")
+    return cert_sha256(der)
+
+
+def _is_verify_error(exc: BaseException) -> bool:
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return True
+    if isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, ssl.SSLError):
+        return True
+    return isinstance(exc, ssl.SSLError) and "CERTIFICATE" in str(exc).upper()
+
+
+def _context_for(trust: TlsTrust) -> ssl.SSLContext:
+    """Public-CA or user-CA context. Pin mode uses _PinnedHTTPSHandler instead."""
+    if trust.mode == "ca":
+        ctx = ssl.create_default_context(cafile=trust.ca_file)
+    else:
+        ctx = ssl.create_default_context()
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    host = urlparse(trust.origin).hostname or ""
+    ctx.check_hostname = bool(host) and not _host_is_ip(host)
+    return ctx
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    """Handshake, then require the leaf SHA-256 before any HTTP bytes go out."""
+
+    def __init__(self, fingerprint: str):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        super().__init__(context=ctx)
+        self._fingerprint = fingerprint
+
+    def https_open(self, req):
+        return self.do_open(self._pinned_connection, req)
+
+    def _pinned_connection(self, host, **kwargs):
+        kwargs["context"] = self._context
+        conn = http.client.HTTPSConnection(host, **kwargs)
+        orig_connect = conn.connect
+
+        def connect_and_pin() -> None:
+            orig_connect()
+            der = (conn.sock.getpeercert(binary_form=True) if conn.sock else b"") or b""
+            got = cert_sha256(der)
+            if got != self._fingerprint:
+                raise ssl.SSLCertVerificationError(
+                    f"unifi TLS pin mismatch (got {got[:16]}…)"
+                )
+
+        conn.connect = connect_and_pin  # type: ignore[method-assign]
+        return conn
+
+
+def _opener_for(trust: TlsTrust, *extra: urllib.request.BaseHandler) -> urllib.request.OpenerDirector:
+    if trust.mode == "pin":
+        if not trust.fingerprint:
+            raise RuntimeError("unifi TLS pin is empty")
+        handlers: list[urllib.request.BaseHandler] = [_PinnedHTTPSHandler(trust.fingerprint)]
+    else:
+        handlers = [urllib.request.HTTPSHandler(context=_context_for(trust))]
+    handlers.extend(extra)
+    return urllib.request.build_opener(*handlers)
+
+
+def _tofu_upgrade(trust: TlsTrust, url: str) -> TlsTrust:
+    fingerprint = capture_peer_fingerprint(url)
+    persist_tofu_pin(trust.origin or tls_origin(url), fingerprint)
+    return replace(trust, mode="pin", fingerprint=fingerprint, tofu=False)
+
+
 def collect_unifi(inv: dict | None, nodes: list[dict] | None = None) -> dict[str, Any]:
     """Soft-fail snapshot block. Never writes inventory."""
     cfg = unifi_config(inv)
     secrets = load_secrets()
-    system = fetch_system(cfg["url"], verify=cfg["verify"])
+    trust = tls_trust_for(cfg)
+    if secrets and urlparse(cfg["url"]).scheme != "https":
+        system = None
+        auth_error = "unifi credentials require https"
+    else:
+        system = fetch_system(cfg["url"], trust=trust)
+        trust = tls_trust_for(cfg)
+        auth_error = None
     out: dict[str, Any] = {
         "ok": bool(system),
         "auth": "none",
@@ -120,21 +331,24 @@ def collect_unifi(inv: dict | None, nodes: list[dict] | None = None) -> dict[str
         "devices": [],
         "clients": [],
         "discover": [],
-        "error": None if system else "unreachable",
+        "error": auth_error or (None if system else "unreachable"),
     }
     if system:
         out.update(_project_system(system))
-        out["error"] = None
+        if not auth_error:
+            out["error"] = None
     try:
+        if auth_error:
+            raise RuntimeError(auth_error)
         if secrets.get("apiKey"):
-            devices, clients = _via_apikey(cfg, secrets["apiKey"])
+            devices, clients = _via_apikey(cfg, secrets["apiKey"], trust)
             out["auth"] = "apikey"
             out["devices"] = devices
             out["clients"] = clients
             out["ok"] = True
             out["error"] = None
         elif secrets.get("username") and secrets.get("password"):
-            devices, clients = _via_login(cfg, secrets["username"], secrets["password"])
+            devices, clients = _via_login(cfg, secrets["username"], secrets["password"], trust)
             out["auth"] = "login"
             out["devices"] = devices
             out["clients"] = clients
@@ -147,9 +361,9 @@ def collect_unifi(inv: dict | None, nodes: list[dict] | None = None) -> dict[str
     return out
 
 
-def fetch_system(base: str, *, verify: bool = False) -> dict | None:
+def fetch_system(base: str, *, trust: TlsTrust) -> dict | None:
     try:
-        payload = _json_get(f"{base.rstrip('/')}/api/system", verify=verify)
+        payload = _json_get(f"{base.rstrip('/')}/api/system", trust=trust)
     except Exception:
         return None
     return payload if isinstance(payload, dict) else None
@@ -172,10 +386,10 @@ def _project_system(system: dict) -> dict[str, Any]:
     }
 
 
-def _via_apikey(cfg: dict, key: str) -> tuple[list[dict], list[dict]]:
+def _via_apikey(cfg: dict, key: str, trust: TlsTrust) -> tuple[list[dict], list[dict]]:
     headers = {"X-API-KEY": key, "Accept": "application/json"}
     base = cfg["url"]
-    sites = _json_get(f"{base}/proxy/network/integration/v1/sites", headers=headers, verify=cfg["verify"])
+    sites = _json_get(f"{base}/proxy/network/integration/v1/sites", headers=headers, trust=trust)
     site_id = _pick_site_id(sites, cfg["site"])
     if site_id:
         try:
@@ -183,29 +397,29 @@ def _via_apikey(cfg: dict, key: str) -> tuple[list[dict], list[dict]]:
                 _json_get(
                     f"{base}/proxy/network/integration/v1/sites/{site_id}/devices",
                     headers=headers,
-                    verify=cfg["verify"],
+                    trust=trust,
                 )
             )
             clients = _items(
                 _json_get(
                     f"{base}/proxy/network/integration/v1/sites/{site_id}/clients",
                     headers=headers,
-                    verify=cfg["verify"],
+                    trust=trust,
                 )
             )
             return [_project_device(d) for d in devices], [_project_client(c) for c in clients]
         except Exception:
             pass
     # Official integration path missing or site-less — classic endpoints still accept the key on some builds.
-    return _classic_stat(base, cfg["site"], headers=headers, verify=cfg["verify"])
+    return _classic_stat(base, cfg["site"], headers=headers, trust=trust)
 
 
-def _via_login(cfg: dict, username: str, password: str) -> tuple[list[dict], list[dict]]:
-    opener, csrf = _login(cfg["url"], username, password, verify=cfg["verify"])
+def _via_login(cfg: dict, username: str, password: str, trust: TlsTrust) -> tuple[list[dict], list[dict]]:
+    opener, csrf = _login(cfg["url"], username, password, trust=trust)
     headers = {"Accept": "application/json"}
     if csrf:
         headers["X-CSRF-Token"] = csrf
-    return _classic_stat(cfg["url"], cfg["site"], headers=headers, verify=cfg["verify"], opener=opener)
+    return _classic_stat(cfg["url"], cfg["site"], headers=headers, trust=trust, opener=opener)
 
 
 def _classic_stat(
@@ -213,14 +427,14 @@ def _classic_stat(
     site: str,
     *,
     headers: dict[str, str],
-    verify: bool,
+    trust: TlsTrust,
     opener: urllib.request.OpenerDirector | None = None,
 ) -> tuple[list[dict], list[dict]]:
     devices = _items(
         _json_get(
             f"{base}/proxy/network/api/s/{site}/stat/device",
             headers=headers,
-            verify=verify,
+            trust=trust,
             opener=opener,
         )
     )
@@ -228,36 +442,44 @@ def _classic_stat(
         _json_get(
             f"{base}/proxy/network/api/s/{site}/stat/sta",
             headers=headers,
-            verify=verify,
+            trust=trust,
             opener=opener,
         )
     )
     return [_project_device(d) for d in devices], [_project_client(c) for c in clients]
 
 
-def _login(base: str, username: str, password: str, *, verify: bool) -> tuple[urllib.request.OpenerDirector, str | None]:
-    ctx = _ssl_ctx(verify)
+def _login(
+    base: str, username: str, password: str, *, trust: TlsTrust
+) -> tuple[urllib.request.OpenerDirector, str | None]:
     jar = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(
-        urllib.request.HTTPSHandler(context=ctx),
-        urllib.request.HTTPCookieProcessor(jar),
-    )
+    opener = _opener_for(trust, urllib.request.HTTPCookieProcessor(jar))
     req = urllib.request.Request(
         f"{base.rstrip('/')}/api/auth/login",
         data=json.dumps({"username": username, "password": password}).encode(),
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
-    with opener.open(req, timeout=TIMEOUT_S) as resp:
-        token = resp.headers.get("X-CSRF-Token") or resp.headers.get("X-Updated-CSRF-Token")
-        body = _read_limited(resp)
-        if not token:
-            try:
-                parsed = json.loads(body.decode() or "{}")
-                if isinstance(parsed, dict):
-                    token = parsed.get("csrfToken") or parsed.get("token")
-            except ValueError:
-                token = None
+    try:
+        with opener.open(req, timeout=TIMEOUT_S) as resp:
+            token = resp.headers.get("X-CSRF-Token") or resp.headers.get("X-Updated-CSRF-Token")
+            body = _read_limited(resp)
+    except Exception as e:
+        if trust.tofu and _is_verify_error(e):
+            trust = _tofu_upgrade(trust, base)
+            opener = _opener_for(trust, urllib.request.HTTPCookieProcessor(jar))
+            with opener.open(req, timeout=TIMEOUT_S) as resp:
+                token = resp.headers.get("X-CSRF-Token") or resp.headers.get("X-Updated-CSRF-Token")
+                body = _read_limited(resp)
+        else:
+            raise
+    if not token:
+        try:
+            parsed = json.loads(body.decode() or "{}")
+            if isinstance(parsed, dict):
+                token = parsed.get("csrfToken") or parsed.get("token")
+        except ValueError:
+            token = None
     if not token:
         for cookie in jar:
             if cookie.name.upper() == "TOKEN":
@@ -270,32 +492,31 @@ def _json_get(
     url: str,
     *,
     headers: dict[str, str] | None = None,
-    verify: bool = False,
+    trust: TlsTrust,
     opener: urllib.request.OpenerDirector | None = None,
 ) -> Any:
     hdrs = {"Accept": "application/json"}
     if headers:
         hdrs.update(headers)
     req = urllib.request.Request(url, headers=hdrs, method="GET")
-    if opener is None:
-        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=_ssl_ctx(verify)))
+    live_trust = trust
+    live_opener = opener if opener is not None else _opener_for(live_trust)
     try:
-        with opener.open(req, timeout=TIMEOUT_S) as resp:
+        with live_opener.open(req, timeout=TIMEOUT_S) as resp:
             raw = _read_limited(resp).decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"unifi {e.code}") from e
+    except Exception as e:
+        if opener is None and live_trust.tofu and _is_verify_error(e):
+            live_trust = _tofu_upgrade(live_trust, url)
+            live_opener = _opener_for(live_trust)
+            with live_opener.open(req, timeout=TIMEOUT_S) as resp:
+                raw = _read_limited(resp).decode("utf-8", errors="replace")
+        else:
+            raise
     if not raw:
         return {}
     return json.loads(raw)
-
-
-def _ssl_ctx(verify: bool) -> ssl.SSLContext:
-    if verify:
-        return ssl.create_default_context()
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
 
 
 def _items(payload: Any) -> list[dict]:

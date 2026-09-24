@@ -87,6 +87,16 @@ install -m 600 unifi-secrets.json.example ~/.local/state/lanarchy/unifi-secrets.
 
 The state directory is mode `0700` and the secrets file must be a regular file owned by you at mode `0600`. LANarchy refuses to read a world/group-readable or symlinked secrets file.
 
+Authenticated UniFi calls always verify TLS. A public CA works as-is. For a self-signed Cloud Gateway / UDM, either install the controller certificate as a CA or pin its leaf SHA-256 — first successful handshake TOFU-pins it to `unifi-tls.json` (mode `0600`). A later cert change fails closed until you replace the pin or CA.
+
+```bash
+# User-installed CA (PEM)
+install -m 644 /path/to/unifi.pem ~/.local/state/lanarchy/unifi-ca.pem
+# Or set settings.unifi.ca / UNIFI_CA, or settings.unifi.fingerprint / UNIFI_FINGERPRINT
+# Reset a TOFU pin after a legitimate controller reissue:
+rm ~/.local/state/lanarchy/unifi-tls.json
+```
+
 The shipped `inventory.default.json` carries no nodes: the machine you are running on is not something to monitor, and everything else comes from the gateway and discovery. Use **Setup → Search network** to build your mesh.
 
 `unifi-secrets.json` is gitignored. Never put keys in `inventory.json`. Lanarchy never auto-writes inventory from UniFi — Find hosts only proposes candidates you click to add.
@@ -206,7 +216,10 @@ that tree and reloads on every write:
 | `history.json` | RTT sparklines / events |
 | `notify-state.json` | Fail streaks + unknown-neighbor mute |
 | `snapshot.json` | Last glance (daemon / probe) |
-| `unifi-secrets.json` | API key (optional) |
+| `seen-devices.json` | New-device arrival baseline |
+| `unifi-secrets.json` | API key (optional); must be mode `0600`, regular file, owned by you |
+| `unifi-tls.json` | TOFU / explicit controller cert SHA-256 pins (mode `0600`) |
+| `unifi-ca.pem` | Optional user-installed UniFi CA |
 
 Useful `inventory.json` settings:
 
@@ -216,7 +229,8 @@ Useful `inventory.json` settings:
   "settings": {
     "failStreakThreshold": 3,
     "unknownNeighborNotify": true,
-    "unifi": { "url": "https://192.168.1.1", "site": "default" },
+    "newDeviceNotify": true,
+    "unifi": { "url": "https://192.168.1.1", "site": "default", "ca": "", "fingerprint": "" },
     "speedtestUrl": "https://files.lan/"
   },
   "nodes": []
