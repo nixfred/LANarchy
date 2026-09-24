@@ -4,15 +4,29 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import stat
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+STATE_DIR_MODE = 0o700
+SECRETS_FILE_MODE = 0o600
+
+
+def ensure_private_dir(path: Path) -> Path:
+    """Create path as a user-only directory and tighten an existing one to 0700."""
+    path.mkdir(parents=True, exist_ok=True, mode=STATE_DIR_MODE)
+    try:
+        os.chmod(path, STATE_DIR_MODE)
+    except OSError:
+        pass
+    return path
+
 
 def atomic_write_json(path: Path, value: Any, *, indent: int | None = 2) -> Path:
     """Write via a per-call temp file in the same dir, then rename. Safe under concurrent writers."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(path.parent)
     fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
     tmp = Path(tmp_name)
     try:
@@ -46,7 +60,7 @@ def probe_lock(timeout_s: float = 20.0) -> Iterator[bool]:
     import time
 
     lock_path = state_dir() / ".probe.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(lock_path.parent)
     with lock_path.open("w") as fh:
         deadline = time.monotonic() + timeout_s
         acquired = False
@@ -87,9 +101,7 @@ def state_dir() -> Path:
     """
     base = os.environ.get("XDG_STATE_HOME") or ""
     root = Path(base) if base else Path.home() / ".local" / "state"
-    out = root / "lanarchy"
-    out.mkdir(parents=True, exist_ok=True)
-    return out
+    return ensure_private_dir(root / "lanarchy")
 
 
 def pycache_env() -> dict:
@@ -124,14 +136,22 @@ def migrate_state_out_of_plugin_dir() -> list[str]:
         dst = dst_dir / name
         if not src.is_file() or dst.exists():
             continue
+        moved_this = False
         try:
             src.replace(dst)
+            moved_this = True
             moved.append(name)
         except OSError:
             try:
                 dst.write_bytes(src.read_bytes())
                 src.unlink(missing_ok=True)
+                moved_this = True
                 moved.append(name)
+            except OSError:
+                pass
+        if moved_this and name == "unifi-secrets.json":
+            try:
+                os.chmod(dst, SECRETS_FILE_MODE)
             except OSError:
                 pass
     # Stale locks and heartbeats in the plugin dir keep triggering reloads.
@@ -192,3 +212,26 @@ def snapshot_path() -> Path:
 def unifi_secrets_path() -> Path:
     """Sidecar credentials. Never commit; never copy into inventory.json."""
     return state_dir() / "unifi-secrets.json"
+
+
+def assert_private_secrets_file(path: Path) -> None:
+    """Refuse to read credentials that are not a private, owner-only regular file.
+
+    Uses O_NOFOLLOW so a symlink cannot redirect the open. Rejects group/other
+    access bits and any owner other than the current user.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as e:
+        raise PermissionError(f"unifi secrets unavailable: {path}") from e
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise PermissionError(f"unifi secrets must be a regular file: {path}")
+        if st.st_uid != os.getuid():
+            raise PermissionError(f"unifi secrets must be owned by the current user: {path}")
+        if st.st_mode & 0o077:
+            raise PermissionError(f"unifi secrets must be mode 0600 (no group/other access): {path}")
+    finally:
+        os.close(fd)

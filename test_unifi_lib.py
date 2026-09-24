@@ -6,6 +6,7 @@ import tempfile
 from unifi_lib import (
     _discover,
     _host_known,
+    _read_limited,
     classify_client,
     client_stem,
     fmt_mac,
@@ -98,10 +99,46 @@ def test_read_secrets_dotenv_and_json() -> None:
         base = Path(td)
         envf = base / "unifi.env"
         envf.write_text("UNIFI_KEY=abc123\n", encoding="utf-8")
+        envf.chmod(0o600)
         assert _read_secrets_file(envf)["UNIFI_KEY"] == "abc123"
         jsf = base / "unifi.json"
         jsf.write_text('{"apiKey":"xyz"}', encoding="utf-8")
+        jsf.chmod(0o600)
         assert _read_secrets_file(jsf)["apiKey"] == "xyz"
+
+
+def test_read_secrets_rejects_world_readable_and_symlink() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        open_file = base / "open.json"
+        open_file.write_text('{"apiKey":"leak"}', encoding="utf-8")
+        open_file.chmod(0o644)
+        assert _read_secrets_file(open_file) == {}
+
+        real = base / "real.json"
+        real.write_text('{"apiKey":"ok"}', encoding="utf-8")
+        real.chmod(0o600)
+        link = base / "link.json"
+        link.symlink_to(real)
+        assert _read_secrets_file(link) == {}
+
+
+def test_read_limited_rejects_overflow() -> None:
+    class FakeResp:
+        def __init__(self, payload: bytes):
+            self._payload = payload
+
+        def read(self, n: int = -1) -> bytes:
+            if n < 0:
+                return self._payload
+            return self._payload[:n]
+
+    assert _read_limited(FakeResp(b"abc"), max_bytes=3) == b"abc"
+    try:
+        _read_limited(FakeResp(b"abcd"), max_bytes=3)
+        raise AssertionError("expected overflow rejection")
+    except RuntimeError as e:
+        assert "exceeds" in str(e)
 
 
 if __name__ == "__main__":
@@ -112,4 +149,6 @@ if __name__ == "__main__":
     test_config_default_url()
     test_fmt_mac()
     test_read_secrets_dotenv_and_json()
+    test_read_secrets_rejects_world_readable_and_symlink()
+    test_read_limited_rejects_overflow()
     print("ok")

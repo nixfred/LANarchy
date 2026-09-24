@@ -11,10 +11,12 @@ import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
-from plugin_paths import unifi_secrets_path
+from plugin_paths import assert_private_secrets_file, unifi_secrets_path
 
 DEFAULT_URL = "https://192.168.1.1"
 TIMEOUT_S = 8.0
+# UniFi site/device JSON is small; a compromised endpoint must not fill the collector.
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 # UniFi OS shortname → display. Unknowns fall back to the shortname itself.
 MODEL_NAMES = {
@@ -66,6 +68,10 @@ def load_secrets() -> dict[str, str]:
 
 def _read_secrets_file(path) -> dict[str, str]:
     try:
+        assert_private_secrets_file(path)
+    except PermissionError:
+        return {}
+    try:
         raw = path.read_text(encoding="utf-8")
     except OSError:
         return {}
@@ -88,6 +94,14 @@ def _read_secrets_file(path) -> dict[str, str]:
         name, value = line.split("=", 1)
         out[name.strip()] = value.strip().strip("\"'")
     return out
+
+
+def _read_limited(resp, *, max_bytes: int = MAX_RESPONSE_BYTES) -> bytes:
+    """Read at most max_bytes; reject a body that would exceed the ceiling."""
+    data = resp.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise RuntimeError(f"unifi response exceeds {max_bytes} bytes")
+    return data
 
 
 def collect_unifi(inv: dict | None, nodes: list[dict] | None = None) -> dict[str, Any]:
@@ -236,7 +250,7 @@ def _login(base: str, username: str, password: str, *, verify: bool) -> tuple[ur
     )
     with opener.open(req, timeout=TIMEOUT_S) as resp:
         token = resp.headers.get("X-CSRF-Token") or resp.headers.get("X-Updated-CSRF-Token")
-        body = resp.read()
+        body = _read_limited(resp)
         if not token:
             try:
                 parsed = json.loads(body.decode() or "{}")
@@ -267,7 +281,7 @@ def _json_get(
         opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=_ssl_ctx(verify)))
     try:
         with opener.open(req, timeout=TIMEOUT_S) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
+            raw = _read_limited(resp).decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"unifi {e.code}") from e
     if not raw:

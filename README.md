@@ -80,11 +80,14 @@ omarchy-shell shell summon nixfred.lanarchy
 ### Optional UniFi
 
 ```bash
-cp unifi-secrets.json.example ~/.config/omarchy/plugins/nixfred.lanarchy/unifi-secrets.json
+install -d -m 700 ~/.local/state/lanarchy
+install -m 600 unifi-secrets.json.example ~/.local/state/lanarchy/unifi-secrets.json
 # UNIFI_KEY=...   or JSON {"apiKey":"..."}
 ```
 
-Shipped `inventory.json` is a tiny localhost starter. Use **Setup → Search network** to build your mesh.
+The state directory is mode `0700` and the secrets file must be a regular file owned by you at mode `0600`. LANarchy refuses to read a world/group-readable or symlinked secrets file.
+
+The shipped `inventory.default.json` carries no nodes: the machine you are running on is not something to monitor, and everything else comes from the gateway and discovery. Use **Setup → Search network** to build your mesh.
 
 `unifi-secrets.json` is gitignored. Never put keys in `inventory.json`. Lanarchy never auto-writes inventory from UniFi — Find hosts only proposes candidates you click to add.
 
