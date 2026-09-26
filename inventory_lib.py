@@ -13,7 +13,13 @@ NODE_TYPES = frozenset({"machine", "host", "proxy"})
 PROXY_CHECKS = frozenset({"http", "tcp"})
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_INVENTORY = HERE / "inventory.json"  # seed with plugin_paths.ensure_user_inventory()
+# The shipped starter. The live inventory.json is user state under state_dir()
+# and is seeded from this file on first run, so this must name the file that is
+# actually in the plugin tree. It still said "inventory.json", which this fork
+# renamed in 1.0.0 and gitignores, so both no-path fallbacks below pointed at a
+# file that does not exist -- and save_inventory()'s would have written into the
+# watched plugin directory, which is the reload storm 1.0.0 exists to prevent.
+DEFAULT_INVENTORY = HERE / "inventory.default.json"
 
 
 def slugify(label: str) -> str:

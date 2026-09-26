@@ -10,7 +10,7 @@ No typing IPs. Search the network, add boxes from UniFi / mDNS, and every name s
 
 [![Omarchy](https://img.shields.io/badge/Omarchy-plugin-00d3f2?style=flat-square)](https://omarchy.org)
 [![Quickshell](https://img.shields.io/badge/Quickshell-QML-5e81ac?style=flat-square)](https://quickshell.org)
-[![Version](https://img.shields.io/badge/version-1.3.0-4fc9d6?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.1-4fc9d6?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-a3be8c?style=flat-square)](LICENSE)
 
 Plugin id: `nixfred.lanarchy` · Install: `~/.config/omarchy/plugins/nixfred.lanarchy/`  
@@ -114,7 +114,7 @@ The shipped `inventory.default.json` carries no nodes: the machine you are runni
 | Animate map traffic | **Flow** tab (map) or `a` — persists as `settings.mapAnimate` |
 | Refresh | `r` |
 | Setup | `⚙ Setup` or `s` |
-| Map select / notify | Arrows · Enter toggles ALERT/MUTE |
+| Map select / notify | Arrows · Enter toggles Notify on/off · `h` hides |
 | Find hosts | Setup → **Search network** → **+ add** |
 
 ### What **Search network** does
@@ -286,11 +286,34 @@ That disables and removes the plugin checkout/symlink. Your state files under `~
 
 ## IPC
 
+The panel registers as target **`lanarchy`** — not the plugin id, which the host's
+own `Ui/Panel` already claims. Plugin-id summon still works for open/close.
+
 ```bash
+omarchy-shell lanarchy open
+omarchy-shell lanarchy close
+omarchy-shell lanarchy toggle
+omarchy-shell lanarchy map
+omarchy-shell lanarchy list
+omarchy-shell lanarchy setup
+omarchy-shell lanarchy modes            # the right-click chooser, without the right-click
+omarchy-shell lanarchy refresh
+omarchy-shell lanarchy version          # → 1.3.1, read from manifest.json at runtime
+omarchy-shell lanarchy status           # → downs / muted / tracked · as_of
+omarchy-shell lanarchy barDisplay downs # downs | upfrac | worstrtt | hosts | none
+omarchy-shell lanarchy rename <mac> "Kitchen"
+omarchy-shell lanarchy ignore <mac>     # dismiss every identity that device answers under
+omarchy-shell lanarchy restore <mac>
+omarchy-shell lanarchy overrides        # → the ignored / names lists as JSON
+
 omarchy-shell shell summon nixfred.lanarchy
 omarchy-shell shell hide nixfred.lanarchy
 omarchy-shell shell rescanPlugins
 ```
+
+These act on the inventory the moment they are called, without the panel being
+opened first. That was not true before 1.3.0: the inventory was loaded only on
+open, so `ignore` reported success and wrote nothing.
 
 One-shot collector (debug):
 
@@ -360,8 +383,9 @@ The choice is stored in `inventory.json` under `settings.barDisplay`.
 | **router** subline | `role: router` / `mapBand: router` machine (e.g. redUltra) — WAN bar + rates |
 | **LIVE · …** pill | Aggregate health + `as_of` |
 | **Map / List** | View tabs |
-| **ALERT / MUTE** | Per-node notify on map cards |
-| **Sparklines** | Recent RTT from history |
+| **Notify on / off** | Per-node alerts; a muted host does not alarm the bar mark |
+| **Hide / Show on map** | Takes a card off the letterbox without stopping its probes |
+| **Sparklines** | Recent RTT from history (batched from the snapshot) |
 | **machine / host / proxy** chips | Setup inventory type |
 | **unifi · box / mdns / arp** | Discover source on Found rows |
 

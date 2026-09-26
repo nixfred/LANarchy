@@ -9,6 +9,25 @@ with upstream; he merged five pull requests from this fork and released 0.4.0
 himself. Versions below 1.0.0 in this file are this fork's own numbering from
 before the split, and do not correspond to upstream releases.
 
+## 1.3.1 - 2026-09-26
+
+- **Fixed: `DEFAULT_INVENTORY` named a file this fork does not ship.** It still
+  said `inventory.json`, which 1.0.0 renamed to `inventory.default.json` and
+  gitignores, so both no-path fallbacks in `inventory_lib` pointed at a file
+  that is not there — and `save_inventory()`'s would have written into the
+  watched plugin directory, which is the reload storm 1.0.0 exists to prevent.
+  Latent rather than live, because every current caller passes an explicit path,
+  but it was a landmine. Upstream had already corrected this and the fork had
+  drifted off it
+- **The IPC surface is documented.** The panel registers as target `lanarchy`
+  and exposes fifteen functions; the README described only the generic
+  `omarchy-shell shell` commands, so the scriptable surface this fork added was
+  undocumented in its own repository. Every command listed was run against a
+  live shell before being written down
+- **The README calls the panel's controls what the panel calls them.** It still
+  said `ALERT / MUTE`, which stopped being the chrome when the always-on ALERT
+  chip was dropped. It is Notify on / off and Hide / Show on map
+
 ## 1.3.0 - 2026-09-24
 
 - **Fixed: the real reason a removal needed two goes.** The inventory was loaded
