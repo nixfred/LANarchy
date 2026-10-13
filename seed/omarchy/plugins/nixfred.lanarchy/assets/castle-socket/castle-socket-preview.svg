@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="320" viewBox="0 0 768 320">
+<title>Lanarchy Castle socket — inverse colours</title>
+<rect width="384" height="320" fill="#171a20"/>
+<rect x="384" width="384" height="320" fill="#e6e5dd"/>
+<g transform="translate(120 48) scale(2.25)" fill="#e6e5dd"><path fill-rule="evenodd" d="M8 8H18V16H26V8H38V16H46V8H56V48L60 56H4L8 48ZM18 27V47H25V53H39V47H46V27H41V39H37V27H34V41H30V27H27V39H23V27Z"/></g>
+<g transform="translate(504 48) scale(2.25)" fill="#171a20"><path fill-rule="evenodd" d="M8 8H18V16H26V8H38V16H46V8H56V48L60 56H4L8 48ZM18 27V47H25V53H39V47H46V27H41V39H37V27H34V41H30V27H27V39H23V27Z"/></g>
+<g font-family="Adwaita Sans, sans-serif" text-anchor="middle" font-size="21" font-weight="bold">
+<text x="192" y="238" fill="#e6e5dd">Castle socket</text>
+<text x="576" y="238" fill="#171a20">Castle socket</text>
+</g>
+<g font-family="Adwaita Sans, sans-serif" text-anchor="middle" font-size="13">
+<text x="192" y="266" fill="#e6e5dd">Warm ivory / charcoal</text>
+<text x="576" y="266" fill="#171a20">Charcoal / warm ivory</text>
+</g>
+</svg>

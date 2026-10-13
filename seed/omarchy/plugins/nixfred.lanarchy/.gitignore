@@ -1,0 +1,46 @@
+# Dotfiles / agent tooling — machine-local; never ship
+.*
+!.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+venv/
+
+# OS
+Thumbs.db
+
+# Secrets and credentials (never commit)
+*.pem
+*.key
+*.p12
+sand-secrets.json
+
+# Beads / Dolt leftovers if not caught by .*
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Runtime sidecars — repo ships inventory.default.json; live state stays untracked
+# inventory.json is seeded from the default on first run, so `omarchy plugin
+# update` (git pull) can never conflict with an edited lab.
+inventory.json
+inventory.local.json
+inventory.lab.json
+inventory.json.bak
+*.log
+unifi-secrets.json
+unifi-tls.json
+unifi-ca.pem
+snapshot.json
+history.json*
+notify-state.json
+
+# Scratch
+*.tmp
+*.swp
+*~
+scratch/

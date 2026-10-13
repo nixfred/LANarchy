@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "nodes": [
+    {"id": "deba", "type": "machine", "label": "deba", "dns": "deba.lan"},
+    {"id": "kiritsuke", "type": "machine", "label": "kiritsuke", "dns": "kiritsuke.lan"},
+    {"id": "aka", "type": "machine", "label": "aka", "dns": "aka.lan"},
+    {"id": "suji", "type": "machine", "label": "suji", "dns": "suji.lan"},
+    {"id": "redultra", "type": "machine", "label": "redUltra", "dns": "redultra.lan", "role": "router", "mapBand": "router"},
+    {"id": "ha.lan", "type": "host", "label": "Home Assistant", "dns": "ha.lan", "group": "ha"},
+    {"id": "ha", "type": "proxy", "label": "HA :443", "check": "tcp", "dns": "ha.lan", "port": 443, "group": "ha"},
+    {"id": "bernie.lan", "type": "host", "label": "Bernie", "dns": "bernie.lan", "group": "bernie"},
+    {"id": "bernie", "type": "proxy", "label": "Bernie :443", "check": "tcp", "dns": "bernie.lan", "port": 443, "group": "bernie"},
+    {"id": "bernie-api", "type": "proxy", "label": "Bernie API", "check": "http", "url": "http://127.0.0.1:9/", "group": "bernie"},
+    {"id": "cockpit.lan", "type": "host", "label": "cockpit.lan", "dns": "cockpit.lan"},
+    {"id": "print.lan", "type": "host", "label": "print.lan", "dns": "print.lan"},
+    {"id": "caddy-health", "type": "proxy", "label": "Caddy", "check": "http", "url": "http://127.0.0.1:2019/config/", "group": "caddy"}
+  ]
+}
