@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // OmarPlugs-5oy.1: Quattro KeyboardPanel + inventory setup (view stack).
@@ -13,9 +14,9 @@ Panel {
   moduleName: "nixfred.lanarchy"
   ipcTarget: "nixfred.lanarchy"
 
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
-  readonly property color ink: Color.popups.text
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
+  readonly property color ink: Commons.Color.popups.text
   readonly property color inkDim: Util.alpha(ink, 0.66)
   readonly property color card: Util.alpha(ink, 0.05)
   readonly property color rule: Util.alpha(ink, 0.14)
@@ -627,7 +628,7 @@ Panel {
         txPackets: root.flowPacketCount(flow.tx),
         rxSpeed: root.flowSpeedPxPerSec(flow.rx),
         txSpeed: root.flowSpeedPxPerSec(flow.tx),
-        color: String(down ? root.urgent : (kind === "wan" ? Color.accent : root.themeGreen)),
+        color: String(down ? root.urgent : (kind === "wan" ? Commons.Color.accent : root.themeGreen)),
         // Stagger so parallel routes do not march in lockstep.
         stagger: ((i * 17) + String(e.from || "").length * 3 + String(e.to || "").length * 5) % 97
       })
@@ -2489,7 +2490,7 @@ Panel {
   }
 
   Connections {
-    target: Color
+    target: Commons.Color
     function onBackgroundChanged() { themePaletteFile.reload() }
     function onAccentChanged() { themePaletteFile.reload() }
   }
@@ -2708,7 +2709,7 @@ Panel {
         live: root.opened && root.view === "glance" && root.glanceTab === "list"
             && meshRow.nodeId !== ""
         stroke: root.ink
-        rateStroke: Color.accent
+        rateStroke: Commons.Color.accent
         muted: root.inkDim
         fontFamily: root.fontFamily
       }
@@ -2800,14 +2801,14 @@ Panel {
         Layout.preferredWidth: srcText.implicitWidth + Style.space(10)
         Layout.preferredHeight: Style.space(20)
         radius: Style.space(4)
-        color: Qt.alpha(Color.accent, 0.12)
+        color: Qt.alpha(Commons.Color.accent, 0.12)
         border.width: 1
-        border.color: Qt.alpha(Color.accent, 0.35)
+        border.color: Qt.alpha(Commons.Color.accent, 0.35)
         Text {
           id: srcText
           anchors.centerIn: parent
           text: sourceChip
-          color: Color.accent
+          color: Commons.Color.accent
           font.family: root.fontFamily
           font.pixelSize: 9
           font.bold: true
@@ -2905,7 +2906,7 @@ Panel {
       visible: mapBox.isEgress
       anchors.fill: parent
       radius: mapBox.radius
-      color: Color.popups.background
+      color: Commons.Color.popups.background
       z: -1
     }
 
@@ -3066,7 +3067,7 @@ Panel {
             anchors.fill: parent
             visible: root.editingId === mapBox.nodeId
             text: root.editingText
-            color: Color.accent
+            color: Commons.Color.accent
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
             font.bold: true
@@ -3116,7 +3117,7 @@ Panel {
         pluginDir: root.pluginDir
         live: root.opened && root.view === "glance" && root.glanceTab === "map" && mapBox.sparklineId !== ""
         stroke: root.ink
-        rateStroke: Color.accent
+        rateStroke: Commons.Color.accent
         muted: root.inkDim
         fontFamily: root.fontFamily
       }
@@ -3512,7 +3513,7 @@ Panel {
     focusTarget: keyCatcher
     padding: root.view === "glance" && root.glanceTab === "map" ? Style.space(12) : Style.space(8)
     borderSpec: root.view === "glance" && root.glanceTab === "map"
-        ? Border.flat(Color.accent, 2) : Border.none()
+        ? Border.flat(Commons.Color.accent, 2) : Border.none()
     contentWidth: panel.fittedContentWidth(root.view === "glance" && root.glanceTab === "map"
         ? Style.space(1280) : Style.space(560))
     // No artificial cap: fittedContentHeight already clamps to the space the
@@ -3572,7 +3573,7 @@ Panel {
           anchors.fill: parent
           anchors.margins: -Style.space(10)
           radius: Style.space(14)
-          color: Color.popups.background
+          color: Commons.Color.popups.background
           z: -1
         }
 
@@ -3632,7 +3633,7 @@ Panel {
                     ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.14)
                     : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.04)
                 border.width: 1
-                border.color: picked ? Qt.alpha(Color.accent, 0.55) : "transparent"
+                border.color: picked ? Qt.alpha(Commons.Color.accent, 0.55) : "transparent"
 
                 Row {
                   anchors.fill: parent
@@ -3642,7 +3643,7 @@ Panel {
                   Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: modeRow.picked ? "●" : "○"
-                    color: modeRow.picked ? Color.accent : root.muted
+                    color: modeRow.picked ? Commons.Color.accent : root.muted
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                   }
@@ -3845,9 +3846,9 @@ Panel {
             height: Math.max(Style.space(140), root.mapContentHeight)
             visible: root.glanceTab === "map"
             radius: Style.space(14)
-            color: Color.popups.background
+            color: Commons.Color.popups.background
             border.width: 1
-            border.color: Qt.alpha(Color.accent, 0.35)
+            border.color: Qt.alpha(Commons.Color.accent, 0.35)
             // Width only. The layout reads mapArea.width and *writes*
             // mapContentHeight, which drives this height, so recalculating on a
             // height change fed the layout its own output and forced a second
@@ -4860,9 +4861,9 @@ Panel {
             visible: !root.inventoryLoading
             width: parent.width
             radius: Style.space(10)
-            color: Qt.alpha(Color.accent, 0.10)
+            color: Qt.alpha(Commons.Color.accent, 0.10)
             border.width: 1
-            border.color: Qt.alpha(Color.accent, 0.45)
+            border.color: Qt.alpha(Commons.Color.accent, 0.45)
             implicitHeight: findCol.implicitHeight + Style.space(20)
 
             Column {
@@ -4897,9 +4898,9 @@ Panel {
                   implicitWidth: findLab.implicitWidth + Style.space(24)
                   implicitHeight: Style.space(34)
                   radius: Style.space(8)
-                  color: root.findHostsBusy ? Qt.alpha(Color.accent, 0.25) : Qt.alpha(Color.accent, 0.55)
+                  color: root.findHostsBusy ? Qt.alpha(Commons.Color.accent, 0.25) : Qt.alpha(Commons.Color.accent, 0.55)
                   border.width: 1
-                  border.color: Color.accent
+                  border.color: Commons.Color.accent
                   Text {
                     id: findLab
                     anchors.centerIn: parent
